@@ -4,68 +4,31 @@
 
 use strict;
 
-#use Class::Struct;
-
 use warnings;
 
-#    no warnings;
-	require "sys/ioctl.ph";
-
+require "sys/ioctl.ph";
 
 require '_h2ph_pre.ph';
 
-unless(defined(&_LINUX_IOCTL_H)) {
-    eval 'sub _LINUX_IOCTL_H () {1;}' unless defined(&_LINUX_IOCTL_H);
-    require 'asm/ioctl.ph';
-}
-
-#unless(defined(&_LINUX_RANDOM_H)) {
-#    eval 'sub _LINUX_RANDOM_H () {1;}' unless defined(&_LINUX_RANDOM_H);
-#    #require 'linux/ioctl.ph'; --^
-#    eval 'sub RNDGETENTCNT () { &_IOR( ord(\'R\'), 0x, \'int\' );}' unless defined(&RNDGETENTCNT);
-#    eval 'sub RNDADDTOENTCNT () { &_IOW( ord(\'R\'), 0x1, \'int\' );}' unless defined(&RNDADDTOENTCNT);
-#    eval 'sub RNDGETPOOL () { &_IOR( ord(\'R\'), 0x2, \'int\' [2] );}' unless defined(&RNDGETPOOL);##
-#	eval 'sub RNDADDENTROPY () { &_IOW( ord(\'R\'), 0x3, \'int [2]\' );}' unless(defined(&RNDADDENTROPY));
-#	print $@;
-#    eval 'sub RNDZAPENTCNT () { &_IO( ord(\'R\'), 0x4 );}' unless defined(&RNDZAPENTCNT);
-#    eval 'sub RNDCLEARPOOL () { &_IO( ord(\'R\'), 0x6 );}' unless defined(&RNDCLEARPOOL);
-#}
-
-#sub RNDADDENTROPY () {
-#	&_IOW( ord('R'), 0x3, 'int [2]' );
-#	print $!;
-#}
-
+# link address 
 my $RNDADDENTROPY=0x40085203;
-#my $RNDADDENTROPY=0x3;
 
-#eval 'sub _IOW {
-#        my($type,$nr,$size) = @_;
-#	    eval q( &_IOC( &_IOC_WRITE,($type),($nr),( &_IOC_TYPECHECK($size))));
-		
-#define _IOW(type,nr,size)	_IOC(_IOC_WRITE,(type),(nr),(_IOC_TYPECHECK(size)))
-
+# data structure for random pool adding
 #struct rand_pool_info {
 #	int	entropy_count;
 #	int	buf_size;
 #	__u32	buf[0];
 #};
-#my $rand_pool_info;
-#struct rand_pool_info  =>
-#{
-#	env_count => '$',
-#	size => '$',
-#	data => '@'
-#};
 
+# usleep
 use Time::HiRes qw( usleep);
 
+# file locking
 use Fcntl qw(:DEFAULT :flock);
 
-#use Tie::File;
-#use DBI;
-
+# database file encoding
 use MIME::Base64 qw(decode_base64);
+
 
 # lowest level allowed for random pool (2000 - 4096)
 my $min_level=4000;
@@ -83,27 +46,7 @@ while ( not -f $database ) {
 	print ".";
 }
 
-#check for driver
-#my @drivers = DBI->available_drivers;
-#my $_found=0;
-#foreach my $driver (@drivers) {
-#	print $driver . "\n";
-#	if ( $driver eq "SQLite" ) { $_found = 1; }
-#}
-#if ( $_found eq 0 ) {
-#	print "SQLite module is not installed\n";
-#	exit;
-#}
-
-#database is taking random data
-#my $db = DBI->connect( "dbi:SQLite:$database", {
-#	RaiseError => 1,
-#	PrintError => 1,
-#	PrintWarn=>1
-#	} ) or die "Cannot connect: $DBI::errstr";
-#$db->{AutoCommit} = 0;  # enable transactions, if possible
-
-#sleep(10);
+### dont use sqlite as it drains the entropy ###
 
 sub entrophy_level {
 	my $levl;
@@ -114,19 +57,11 @@ sub entrophy_level {
 	return $levl;
 }
 
-my @db_array=();
-#my $db = tie @db_array, "Tie::File", $database or die "Could not open database: $!";
-#$db->flock;
-
-# open random device
-#binmode(RD);
-
 my (@data, $rand64, $rand, $empty, $tries, $test, $size);
 my $adds=0;
 while (1) {
 	$empty=0;
 	#$tries=0;
-	entrophy_level();
 	while ( entrophy_level() < $min_level and $empty eq 0 ) {
 		# open and lock file
 		open(DB, "+<".$database ) or die "Could not open database: $!";
@@ -135,60 +70,30 @@ while (1) {
 		$test="";
 		$rand64="";
 		while ($test=<DB>) { $rand64=$test; };
-		#print " <".tell(DB). "> <".$rand64.">";
 		seek(DB,0,2);
 		truncate(DB,tell(DB) - length($rand64));
-		#syswrite(DB,"");
 		close(DB);
-		#$db->flush;
-		#$db->flock(8); #unlock
 		if ( $rand64 ne "" ) {
-			#$rand64 =~ s/|/\n/;
-			#chomp($rand64);
+			chomp($rand64);
 			$rand=decode_base64($rand64);
 			$size=length($rand);
-			print entrophy_level() . " + " . $size . "\n";
+			#print entrophy_level() . " + " . $size . "\n";
 			# int, int, unsiged 32bit char (__u32)
-			#struct entropy  =>
-			#{
-			#	env_count => '$', int
-			#	size => '$',
-			#	data => '@',
-			#};
-			#my @rand_array=split(//,$rand);
-			#my $entropy = rand_pool_info->new ( env_count => $size,
-			#							size      => $size,
-			#							data      => \@rand_array,
-			#						   );
-			#if (
-			#$size = pack("L", 0);
 			my $entropy_pack=pack("i i a".$size, entrophy_level(), $size, $rand);	
 			open(RD, ">>/dev/random") or die "Unable to open random device for writing: $!";
 			ioctl(RD, $RNDADDENTROPY , $entropy_pack) || die "Can't ioctl: $!";
-			#print $@;
 			close(RD);
-			my ($e_level, $e_size, $e) = unpack("i i a".$size, $entropy_pack);
-			if ($rand ne $e) {
-				print "\nUnpack was not equal: ".length($rand)." != ".length($e)."\n";
-				print $rand."\n";
-				print $e."\n";
-			}
-			if ($size ne $e_size) {
-				print "\nSize was not equal: ".length($size)." != ".length($e_size)."\n";
-			}
-			# != 0) {
-			#	die "Failed to add entrpht";
+			# test for packing of random data
+			#my ($e_level, $e_size, $e) = unpack("i i a".$size, $entropy_pack);
+			#if ($rand ne $e) {
+			#	print "\nUnpack was not equal: ".length($rand)." != ".length($e)."\n";
+			#	print $rand."\n";
+			#	print $e."\n";
 			#}
-			#print "returned: $!";
-			#syswrite(RD, $rand) or die "unable tp write";;
-			#print RAND sha1_hex($rand);
-			#print $rand;
-			#close(RAND);
+			#if ($size ne $e_size) {
+			#	print "\nSize was not equal: ".length($size)." != ".length($e_size)."\n";
+			#}
 			$adds += $size;
-			#$db->do( "DELETE FROM data WHERE randomstring = '".$rand64."'");
-			#$adds++;
-			#print "\ndone\n";
-			
 		}
 		else {
 			$empty = 1;
