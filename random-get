@@ -2,6 +2,8 @@
 
 # open database and if enrophy level is too low place data into /dev/random
 
+$ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin";
+
 use strict;
 
 use warnings;
@@ -10,8 +12,55 @@ require "sys/ioctl.ph";
 
 require '_h2ph_pre.ph';
 
-# link address 
+use File::Temp qw( tempdir );
+
+use Time::HiRes qw( usleep );
+
+use Fcntl qw(:DEFAULT :flock);
+
+use MIME::Base64 qw(decode_base64);
+
+# lowest level allowed for random pool (2000 - 4096)
+my $min_level=4000;
+
+# database
+my $database = "/tmp/randomdata/database";
+
+# rng address (run with --address command to get address)
 my $RNDADDENTROPY=0x40085203;
+
+# link address (write a c program and get the address from it)
+if ($#ARGV eq 0 and $ARGV[0] eq "--address" ) {
+	print "Please wait... getting address.\n";
+	my $c_contents="
+		#include <stdio.h>\n
+		#include <linux/types.h>\n
+		#include <linux/random.h>\n
+	
+		int main() {\n
+			printf(\"%#08x\\n\", RNDADDENTROPY);\n
+			return 0;\n
+		}\n";
+	# write and compile file
+	my $tmpdir=tempdir ( "random-get-XXXXXXXXXXXXXXXXXXX", TMPDIR => 1, CLEANUP => 0 );
+	my $c_file=$tmpdir."/rng_address.c";
+	my $o_file=$tmpdir."/rng_address";
+	open(CF,">".$c_file) || die "Could not write $c_file: $!";
+	print CF $c_contents;
+	close(CF);
+	system("gcc -Wall -o \"$o_file\" \"$c_file\"");
+	# get address (0x40085203)
+	my $RNDADDENTROPY=`$o_file`;
+	chomp $RNDADDENTROPY;
+	# cleanup
+	unlink($c_file);
+	unlink($o_file);
+	rmdir($tmpdir);
+	# check and convert to number
+	
+	print "Rng address is $RNDADDENTROPY\n";
+	exit;
+}
 
 # data structure for random pool adding
 #struct rand_pool_info {
@@ -19,23 +68,6 @@ my $RNDADDENTROPY=0x40085203;
 #	int	buf_size;
 #	__u32	buf[0];
 #};
-
-# usleep
-use Time::HiRes qw( usleep);
-
-# file locking
-use Fcntl qw(:DEFAULT :flock);
-
-# database file encoding
-use MIME::Base64 qw(decode_base64);
-
-
-# lowest level allowed for random pool (2000 - 4096)
-my $min_level=4000;
-
-my $var_area = "/tmp/randomdata";
-#my $var_area = "/var/spool/randomdata";
-my $database = $var_area . "/database";
 
 # wait for database if it isnt there already
 if ( not -f $database ) {
