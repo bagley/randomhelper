@@ -1,0 +1,246 @@
+#!/usr/bin/perl -w
+
+#get random data from various sources and place it in the darabase
+
+use strict;
+
+use Fcntl qw(:DEFAULT :flock);
+#use DBI;
+
+#use LWP;
+
+use MIME::Base64 qw(encode_base64);
+
+#use Time::HiRes qw(time);
+
+#use Digest::SHA1  qw(sha1_hex);
+
+my $var_area = "/tmp/randomdata";
+#my $var_area = "/var/spool/randomdata";
+my $database = $var_area . "/database";
+
+#unlink $database;
+mkdir $var_area;
+chmod 0700, $var_area;
+
+#my $db = DBI->connect( "dbi:File:$database", {
+#	RaiseError => 1,
+#	PrintError => 1,
+#	PrintWarn=>1
+#	} ) or die "Cannot connect: $DBI::errstr";
+#$db->{AutoCommit} = 0;  # enable transactions, if possible
+
+#$db->do( "CREATE TABLE data ( key, randomstring )" );
+# check for table
+#my @test = $db->selectrow_array( "SELECT * FROM data LIMIT 1");
+#if ( $test[0] eq "" ) {
+#	$db->do( "CREATE TABLE data ( randomstring )" );
+#}
+
+# download or obtain data
+# args: <source> <destination> <amount in kb> [username] [password]
+sub get_data {
+	my $src = shift;
+	my $dest = shift;
+	my $amount = shift;
+	my $testfile=$dest.".test";
+	my ($x,$buf);
+	# get chunks of 57 bits
+	$amount = $amount * 18;
+	if ( $src =~ m/^http/ ) {
+		#download from remote location to $dest.tmp file
+		print "Web";
+#		#set $src to $dest.tmp
+#		$src = $dest . ".tmp"
+	}
+	else {
+		# get data from device
+		if ( not open(SAVE,">" . $dest) ) {
+			print "Could not open destination($!): $dest\n";
+			return 1;
+		}
+		if ( not open(FILE, $src) ) {
+			print "Could not open source($!): $src\n";
+			close(SAVE);
+			unlink $dest;
+			return 2
+		}
+		for ($x=1; $x <= $amount ; $x++) {
+			read(FILE, $buf, 57);
+			print SAVE $buf;
+		}
+	}
+	# test for randomness
+	system("cat $dest | rngtest -p > $testfile");
+	# format to base64, reading parts at a time to keep memory down
+	if ( not open(SAVE,">" . $dest) ) {
+		print "Could not open destination($!): $dest\n";
+		return 1;
+	}
+	if ( not open(FILE, $testfile) ) {
+		print "Could not open source($!): $src\n";
+		close(SAVE);
+		unlink $dest;
+		return 2
+	}
+	while (	read(FILE, $buf, 57) ) {
+		print SAVE encode_base64($buf);
+	}
+	close(SAVE);
+	close(FILE);
+	return 0
+}
+
+sub random_sort {
+	my $database_name = shift;
+	my @files = @_;
+	#open(DATABASE,">".$destination) or die ("could not open destination: $!");
+	my $f=0;
+	my @fh=();
+	foreach my $file (@files) {
+		if ( not open($fh[$f],$file) ) {
+			warn ("Could not open $file: $!");
+		}
+		$f++;
+	}
+	#foreach my $fileh2 (@fh) {
+	#	if ( defined($fileh2) ) {
+	#		print $fileh2 . "\n";
+	#	}
+	#}
+	
+	# open database with no memory, and lock it
+	my @db_array;
+	my $database_tmp=$database_name."tmp";
+	open (DATATMP , ">".$database_tmp) or die "Could not clear tmp database: $!";
+	close (DATATMP);
+	open (DATATMP , "+<".$database_tmp) or die "Could not open tmp database: $!";
+	#my $db = tie @db_array, "Tie::File", $database_name or die "Could not open database: $!";
+	#$db->flock;
+	#$db->defer;
+	# vars
+	my $added=1;
+	my ($line, $rand_each, $t, $key);
+	my $full_line="";
+	my $rand_lines=int( 2 + rand 6 );
+	my $added_lines=0;
+	#eval {
+		while ($added eq 1) {
+			$added=0;
+			foreach my $fileh (@fh) {
+				if ( defined($fileh) ) {
+					# how many lines from this file?
+					$rand_each=1 + int(rand 3);
+					for ($t=1; $t <= $rand_each ; $t++) {
+						$line = <$fileh>;
+						if ( defined($line) ) {
+							chomp($line);
+							$full_line .= $line;
+							$added=1; # if any of the files have anything left
+							$added_lines++;
+							# print when we have our lines
+							if ($added_lines ge $rand_lines ) {
+								#print DATABASE $full_line;
+								#print DATABASE "----\n";
+								#$key=sha1_hex(Time::HiRes::time() . $full_line);
+								#print  $key . "\n";
+								#unshift @db_array, $full_line;
+								#$database_h->do( "INSERT INTO data VALUES ( '$full_line' )" );
+								print DATATMP $full_line . "\n";
+								$rand_lines=int( 2 + rand 6 );
+								$added_lines=0;
+								$full_line = "";
+							}
+						}
+					}
+				}
+			}
+		}
+	#	$database_h->commit;
+	#};
+	#if ($@) {
+    #  warn "Transaction aborted because $@";
+    #  # now rollback to undo the incomplete changes
+    #  # but do it in an eval{} as it may also fail
+    #  eval { $database_h->rollback };
+    #  # add other application on-error-clean-up code here
+	#}
+	# close database
+	#$db->flush;
+	#untie($db);
+	# close and remove files
+	$f=0;
+	foreach my $file (@files) {
+		close($fh[$f]);
+		unlink $file;
+		unlink $file.".test";
+		$f++;
+	}
+	
+	#sysopen(FH, "numfile", O_RDWR|O_CREAT)
+    #                                or die "can't open numfile: $!";
+	#flock(FH, LOCK_EX)                     		or die "can't write-lock numfile: $!";
+	## Now we have acquired the lock, it's safe for I/O
+	#$num = <FH> || 0;                   		# DO NOT USE "or" THERE!!
+	#seek(FH, 0, 0)                      		or die "can't rewind numfile : $!";
+	#truncate(FH, 0)                     		or die "can't truncate numfile: $!";
+	#print FH $num+1, "\n"               		or die "can't write numfile: $!";
+	#close(FH)                           		or die "can't close numfile: $!";
+	
+	# open and lock file
+	my $data_line;
+	open( DATABASE , "+<".$database_name ) or die "Could not open database for copy:$!";
+	flock( DATABASE , LOCK_EX);
+	# copy old databse to new one (we are adding new ones to top for random-get's speed)
+	while ($data_line = <DATABASE>) {
+		print DATATMP $data_line;
+	}
+	# write it back
+	seek(DATATMP,0,0); #rewind tmp
+	seek(DATABASE,0,0); #rewind
+	truncate(DATABASE,0); #clear file
+	while ($data_line = <DATATMP>) {
+		print DATABASE $data_line;
+	}
+	close(DATABASE);
+	close(DATATMP);
+	unlink $database_tmp;
+}
+
+my ($r,$format_buf);
+
+# source
+while (1) {
+	
+	#foreach my $data
+	# /dev/hrandom0
+	get_data("/dev/hrandom0",$var_area . "/file1",1024);
+	get_data("/dev/hrandom0",$var_area . "/file2",2048);
+	get_data("/dev/hrandom1",$var_area . "/file3",1024);
+	
+	# randomly sort data into database
+	random_sort($database, $var_area."/file1", $var_area."/file2", $var_area."/file3");
+	
+	#$dbh->do( "INSERT INTO data ( '".$randomstring."' ) " );
+	
+	#sleep(5);
+	
+	
+	
+	
+	# save to file
+	
+	
+	
+	
+	#cut up into various chunks, and randowly sort
+	
+	exit;
+	
+	
+	
+	
+	#$dbh->do( "SELECT * FROM cia LIMIT 10
+	
+}
+
