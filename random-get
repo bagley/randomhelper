@@ -24,7 +24,9 @@ use MIME::Base64 qw(decode_base64);
 my $min_level=4000;
 
 # database
-my $database = "/tmp/randomdata/database";
+my $var_area = "/var/lib/randomdata";
+my $database = $var_area . "/database";
+my $stats_file = $var_area . "/stats";
 
 # rng address (run with --address command to get address)
 my $RNDADDENTROPY=0x40085203;
@@ -62,6 +64,16 @@ if ($#ARGV eq 0 and $ARGV[0] eq "--address" ) {
 	exit;
 }
 
+use Sys::Syslog;
+# log info
+sub logit {
+	my $msg = shift;
+	openlog($0, 'cons,pid', 'user');
+    syslog('notice', $msg);
+    closelog();
+	#system("logger -i -t random-collector -p kernel.info \"$msg\"");
+}
+
 # data structure for random pool adding
 #struct rand_pool_info {
 #	int	entropy_count;
@@ -89,12 +101,27 @@ sub entrophy_level {
 	return $levl;
 }
 
-my (@data, $rand64, $rand, $empty, $tries, $test, $size);
+open(RD, ">>/dev/random") or die "Unable to open random device for writing: $!";
+
+# get total data for today from stats file
 my $adds=0;
+if ( open(STATS, "$stats_file") {
+	my $totals = <STATS>;
+	chomp $totals;
+	my @split_totals = split( / / , $totals);
+	if ( $split_totals[2] eq (today) ) {
+		$adds=$split_totals[4];
+	}
+}
+
+my (@data, $rand64, $rand, $empty, $tries, $test, $size);
+
+my $empty_notice=0; # only every hour
+my $output_stats=0;
 while (1) {
 	$empty=0;
-	#$tries=0;
-	while ( entrophy_level() < $min_level and $empty eq 0 ) {
+	$tries=0;
+	while ( entrophy_level() < $min_level and $empty eq 0 and $tries < 100 ) {
 		# open and lock file
 		open(DB, "+<".$database ) or die "Could not open database: $!";
 		flock(DB,LOCK_EX) or die "Could not lock database: $!";
@@ -106,15 +133,16 @@ while (1) {
 		truncate(DB,tell(DB) - length($rand64));
 		close(DB);
 		if ( $rand64 ne "" ) {
+			print $rand64;
 			chomp($rand64);
 			$rand=decode_base64($rand64);
 			$size=length($rand);
 			#print entrophy_level() . " + " . $size . "\n";
 			# int, int, unsiged 32bit char (__u32)
 			my $entropy_pack=pack("i i a".$size, entrophy_level(), $size, $rand);	
-			open(RD, ">>/dev/random") or die "Unable to open random device for writing: $!";
+			
 			ioctl(RD, $RNDADDENTROPY , $entropy_pack) || die "Can't ioctl: $!";
-			close(RD);
+			#close(RD);
 			# test for packing of random data
 			#my ($e_level, $e_size, $e) = unpack("i i a".$size, $entropy_pack);
 			#if ($rand ne $e) {
@@ -129,15 +157,28 @@ while (1) {
 		}
 		else {
 			$empty = 1;
-			print "Empty\n";
+			if ( time - $empty_notice > 3600 ) {
+				logit("ERROR: Entrophy database is empty");
+				$empty_notice=time;
+			}
 			sleep 10;
 		}
 		#sleep 1;
-		usleep(50000);
-		#$tries++;
+		usleep(20000);
+		$tries++;
 	}
 	#update total data
+	if ( time - $output_stats > 3600 ) {
+		# Total for 03/01/2009 is 685950403 bits
+		if ( open(STATS, ">$stats_file") {
+			print STATS "Total for " . time2str("%D", time) . " is $adds bits\n";
+		}
+		else {
+			logit("ERROR: Unable to open stats file");
+		}
+		$output_stats=time;
+	}
 	
 	sleep 1;
-	print entrophy_level()." . ".$adds."\n";
+	#print entrophy_level()." . ".$adds."\n";
 }

@@ -5,37 +5,47 @@
 use strict;
 
 use Fcntl qw(:DEFAULT :flock);
-#use DBI;
-
-#use LWP;
 
 use MIME::Base64 qw(encode_base64);
 
-#use Time::HiRes qw(time);
+use Cwd;
+use Cwd qw(abs_path);
+use Sys::Syslog;
+use File::Basename;
 
-#use Digest::SHA1  qw(sha1_hex);
-
-my $var_area = "/tmp/randomdata";
-#my $var_area = "/var/spool/randomdata";
+my $var_area = "/var/lib/randomdata";
 my $database = $var_area . "/database";
 
-#unlink $database;
-mkdir $var_area;
-chmod 0700, $var_area;
+# check that we are running as non-root
+die "Cannot run as root!"
+	unless ( not -w "/etc" );
 
-#my $db = DBI->connect( "dbi:File:$database", {
-#	RaiseError => 1,
-#	PrintError => 1,
-#	PrintWarn=>1
-#	} ) or die "Cannot connect: $DBI::errstr";
-#$db->{AutoCommit} = 0;  # enable transactions, if possible
+# check that we are running as owner of script   [ getlogin() is LAME ]
+#die "Needs to run as user who owns file (".(getpwnam(getlogin()))[2].")"
+#	unless ( (stat(abs_path($0)))[2] eq (getpwnam(getlogin()))[2] );
 
-#$db->do( "CREATE TABLE data ( key, randomstring )" );
-# check for table
-#my @test = $db->selectrow_array( "SELECT * FROM data LIMIT 1");
-#if ( $test[0] eq "" ) {
-#	$db->do( "CREATE TABLE data ( randomstring )" );
-#}
+#check folder for permissions
+die "Database directory does not exists"
+	unless ( -d $var_area );
+die "Database directory is not writable"
+	unless ( -w $var_area );
+my $mode = sprintf "%04o", ((stat($var_area))[2] & 07777);
+die "Database directory permissions are incorrect (".$mode.")"
+	unless ( $mode eq "0700" );
+#die "Database directory is not owned by user"
+#	unless ( (stat($var_area))[2] eq (getpwnam(getlogin()))[2] );
+
+my $dir = getcwd;
+$ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
+
+# log info
+sub logit {
+	my $msg = shift;
+	openlog('random-collector', 'cons,pid', 'user');
+    syslog('notice', $msg);
+    closelog();
+	#system("logger -i -t random-collector -p kernel.info \"$msg\"");
+}
 
 # download or obtain data
 # args: <source> <destination> <amount in kb> [username] [password]
@@ -45,51 +55,93 @@ sub get_data {
 	my $amount = shift;
 	my $testfile=$dest.".test";
 	my ($x,$buf);
-	# get chunks of 57 bits
-	$amount = $amount * 18;
+	$amount *= 1024 * 1024;
 	if ( $src =~ m/^http/ ) {
 		#download from remote location to $dest.tmp file
-		print "Web";
+		logit("Web not done yet - no sites for it");
+		return 1;
 #		#set $src to $dest.tmp
 #		$src = $dest . ".tmp"
 	}
-	else {
+	elsif ( -C $src) {
 		# get data from device
-		if ( not open(SAVE,">" . $dest) ) {
-			print "Could not open destination($!): $dest\n";
+		#$amount = $amount * 18 (old: in chunks of 57 bits, in MB);
+		$amount /= 1024;
+		if ( not open(SAVE, ">".$dest) ) {
+			logit("Could not open destination($!): $dest");
 			return 1;
 		}
+		chmod 0600, $dest;
 		if ( not open(FILE, $src) ) {
-			print "Could not open source($!): $src\n";
+			logit("Could not open source($!): $src");
 			close(SAVE);
 			unlink $dest;
 			return 2
 		}
 		for ($x=1; $x <= $amount ; $x++) {
-			read(FILE, $buf, 57);
+			read(FILE, $buf, 1024);
 			print SAVE $buf;
+		}
+		close(SAVE);
+		close(FILE);
+	}
+	else {
+		my $fullpath="";
+		my @paths = split (/:/ , $ENV{PATH});
+		foreach my $path ( @paths ) {
+			if ( -x $path . "/" . $src ) {
+				$fullpath=$path . "/" . $src;
+				last;
+			}
+		}
+		if ( $fullpath ne "" ) {
+			# must be a program
+			system("touch \"$dest\"");
+			chmod 0600, $dest;
+			#chdir(dirname($src));
+			system($fullpath . " " . $amount . " > " . $dest);
+			if ( $? ne 0 ) {
+				logit("Failed to run " . $fullpath . " " . $amount . " > " . $dest);
+				return 5;
+			}
+			#chdir(dirname(abs_path($0)));
+		}
+		else {
+			# not supported
+			die "Entry \"$src\" is of a type that is not supported...";
 		}
 	}
 	# test for randomness
-	system("cat $dest | rngtest -p > $testfile");
+	system("cat \"$dest\" | rngtest -p > \"$testfile\" 2>/dev/null");
 	# format to base64, reading parts at a time to keep memory down
+	if ( -s $testfile eq 0 ) {
+		logit("Output of $dest was empty (after test)");
+		unlink $dest;
+		unlink $testfile;
+		return 4;
+	}
 	if ( not open(SAVE,">" . $dest) ) {
-		print "Could not open destination($!): $dest\n";
+		logit ("Could not open destination($!): $dest");
 		return 1;
 	}
 	if ( not open(FILE, $testfile) ) {
-		print "Could not open source($!): $src\n";
+		logit("Could not open source($!): $src");
 		close(SAVE);
 		unlink $dest;
 		return 2
 	}
-	while (	read(FILE, $buf, 57) ) {
+	# read in 57 ata time, so base64 will be okay
+	while (	read(FILE, $buf, 57) eq 57 ) {
 		print SAVE encode_base64($buf);
 	}
 	close(SAVE);
 	close(FILE);
-	return 0
+	unlink $testfile;
+	return 0;
 }
+
+
+
 
 sub random_sort {
 	my $database_name = shift;
@@ -98,10 +150,12 @@ sub random_sort {
 	my $f=0;
 	my @fh=();
 	foreach my $file (@files) {
-		if ( not open($fh[$f],$file) ) {
-			warn ("Could not open $file: $!");
+		if ( -f $file ) {
+			if ( not open($fh[$f],$file) ) {
+				logit ("Could not open $file: $!");
+			}
+			$f++;
 		}
-		$f++;
 	}
 	#foreach my $fileh2 (@fh) {
 	#	if ( defined($fileh2) ) {
@@ -112,9 +166,16 @@ sub random_sort {
 	# open database with no memory, and lock it
 	my @db_array;
 	my $database_tmp=$database_name."tmp";
-	open (DATATMP , ">".$database_tmp) or die "Could not clear tmp database: $!";
+	if ( not open (DATATMP , ">".$database_tmp) ) {
+		logit("Exiting because could not clear tmp database: $!");
+		exit;
+	}
+	chmod 0600, $database_tmp;
 	close (DATATMP);
-	open (DATATMP , "+<".$database_tmp) or die "Could not open tmp database: $!";
+	if ( not open (DATATMP , "+<".$database_tmp) ) {
+		logit("Exiting because could not open tmp database: $!");
+		exit;
+	}
 	#my $db = tie @db_array, "Tie::File", $database_name or die "Could not open database: $!";
 	#$db->flock;
 	#$db->defer;
@@ -171,10 +232,11 @@ sub random_sort {
 	# close and remove files
 	$f=0;
 	foreach my $file (@files) {
-		close($fh[$f]);
-		unlink $file;
-		unlink $file.".test";
-		$f++;
+		if ( -f $file ) {
+			close($fh[$f]);
+			unlink $file;
+			$f++;
+		}
 	}
 	
 	#sysopen(FH, "numfile", O_RDWR|O_CREAT)
@@ -189,22 +251,33 @@ sub random_sort {
 	
 	# open and lock file
 	my $data_line;
-	open( DATABASE , "+<".$database_name ) or die "Could not open database for copy:$!";
-	flock( DATABASE , LOCK_EX);
-	# copy old databse to new one (we are adding new ones to top for random-get's speed)
-	while ($data_line = <DATABASE>) {
-		print DATATMP $data_line;
+	if ( -f $database_name ) {
+		if ( not open( DATABASE , "+<".$database_name ) ) {
+			logit("Exiting because could not open database for copy:$!");
+			exit;
+		}
+		flock( DATABASE , LOCK_EX);
+		chmod 0600, $database_name;
+		# copy old databse to new one (we are adding new ones to top for random-get's speed)
+		while ($data_line = <DATABASE>) {
+			print DATATMP $data_line;
+		}
+		# write it back
+		seek(DATATMP,0,0); #rewind tmp
+		seek(DATABASE,0,0); #rewind
+		truncate(DATABASE,0); #clear file
+		while ($data_line = <DATATMP>) {
+			print DATABASE $data_line;
+		}
+		close(DATABASE);
+		close(DATATMP);
+		unlink $database_tmp;
 	}
-	# write it back
-	seek(DATATMP,0,0); #rewind tmp
-	seek(DATABASE,0,0); #rewind
-	truncate(DATABASE,0); #clear file
-	while ($data_line = <DATATMP>) {
-		print DATABASE $data_line;
+	else {
+		# first run
+		rename $database_tmp, $database_name;
+		chmod 0600, $database_name;
 	}
-	close(DATABASE);
-	close(DATATMP);
-	unlink $database_tmp;
 }
 
 my ($r,$format_buf);
@@ -212,35 +285,33 @@ my ($r,$format_buf);
 # source
 while (1) {
 	
+	# wait if we already have enough random data stocked up
+	if ( -f $database ) {
+		while ( (stat($database))[7] > 30 * 1048576 ) {
+			sleep(60);
+		}
+	}
+	
 	#foreach my $data
 	# /dev/hrandom0
-	get_data("/dev/hrandom0",$var_area . "/file1",1024);
-	get_data("/dev/hrandom0",$var_area . "/file2",2048);
-	get_data("/dev/hrandom1",$var_area . "/file3",1024);
+	logit("Getting random data");
+	# should total 300 mb (each is in mb)
+	get_data("/dev/hrandom0",	$var_area."/file1",	5);
+	get_data("qrand.sh",		$var_area."/file2",	5);
+	get_data("/dev/hrandom1",	$var_area."/file3",	5);
+	#get_data("/dev/erandom",	$var_area."/file4",	 20);
+	#get_data("MersenneTwister",	$var_area."/file5",	 50);
 	
 	# randomly sort data into database
 	random_sort($database, $var_area."/file1", $var_area."/file2", $var_area."/file3");
+		#,$var_area."/file4", $var_area."/file5");
 	
-	#$dbh->do( "INSERT INTO data ( '".$randomstring."' ) " );
+	logit("Finished getting random data");
 	
-	#sleep(5);
-	
-	
-	
-	
-	# save to file
-	
-	
-	
+	# At most get data once an hour - more means trouble
+	sleep(3600);
 	
 	#cut up into various chunks, and randowly sort
-	
-	exit;
-	
-	
-	
-	
-	#$dbh->do( "SELECT * FROM cia LIMIT 10
 	
 }
 
