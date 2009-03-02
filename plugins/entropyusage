@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+
+use strict;
+
+my $stats_file="/var/run/random-add.pid";
+
+if ( $#ARGV eq 0 and $ARGV[0] eq "autoconf" ) {
+	print "yes\n";
+	exit;
+}
+
+if ( $#ARGV eq 0 and $ARGV[0] eq "config" ) {
+
+	print "graph_title Entropy Usage\n";
+	print "graph_args --base 1000 -l 0\n";
+	print "graph_vlabel Bits per second\n";
+	print "graph_category system\n";
+	print "graph_info This graph shows the amount of entrophy that has been added to the system from random-add.\n";
+	#print "processes.draw LINE2\n";
+	print "entropyusage.label usage\n";
+	print "entropyusage.type COUNTER\n";
+	print "entropyusage.info The number of added random bytes. This is typically used by cryptographic applications.\n";
+	exit 0;
+}
+
+# get total data for today from stats file
+# Total for 03/02/09 is 209237 bits
+print "entropyusage.value ";
+if ( open(STATS, "$stats_file") ) {
+	my $totals = <STATS>;
+	close(STATS);
+	if ( defined $totals ) {
+		chomp $totals;
+		my @split_totals = split( / / , $totals);
+		if ( $#split_totals eq 5 and $split_totals[4] ge 0 ) {
+			print $split_totals[4]."\n";
+			exit 0;
+		}
+		print "0\n";
+		exit 0;
+	}
+}
+
+print "U\n";
+exit 1;
+

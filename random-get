@@ -20,13 +20,15 @@ use Fcntl qw(:DEFAULT :flock);
 
 use MIME::Base64 qw(decode_base64);
 
+use Date::Format;
+
 # lowest level allowed for random pool (2000 - 4096)
 my $min_level=4000;
 
 # database
 my $var_area = "/var/lib/randomdata";
 my $database = $var_area . "/database";
-my $stats_file = $var_area . "/stats";
+my $stats_file = "/var/run/random-add.pid";
 
 # rng address (run with --address command to get address)
 my $RNDADDENTROPY=0x40085203;
@@ -52,15 +54,21 @@ if ($#ARGV eq 0 and $ARGV[0] eq "--address" ) {
 	close(CF);
 	system("gcc -Wall -o \"$o_file\" \"$c_file\"");
 	# get address (0x40085203)
-	my $RNDADDENTROPY=`$o_file`;
-	chomp $RNDADDENTROPY;
+	my $gen_RNDADDENTROPY=`$o_file`;
+	chomp $gen_RNDADDENTROPY;
 	# cleanup
 	unlink($c_file);
 	unlink($o_file);
 	rmdir($tmpdir);
 	# check and convert to number
 	
-	print "Rng address is $RNDADDENTROPY\n";
+	print "Rng address is $gen_RNDADDENTROPY\n";
+	if ( "$gen_RNDADDENTROPY" ne "0x".sprintf("%X",$RNDADDENTROPY) ) {
+		print "Variable \$RNDADDENTROPY is 0x".sprintf("%X",$RNDADDENTROPY)."\n";
+		print "You will need to change it manually to $gen_RNDADDENTROPY\n";
+	} else {
+		print "Current saved address is correct.\n";
+	}
 	exit;
 }
 
@@ -104,20 +112,34 @@ sub entrophy_level {
 open(RD, ">>/dev/random") or die "Unable to open random device for writing: $!";
 
 # get total data for today from stats file
+# Total for 03/02/09 is 209237 bits
 my $adds=0;
-if ( open(STATS, "$stats_file") {
+my $adds_today_date=time2str("%D", time);
+if ( open(STATS, "$stats_file") ) {
 	my $totals = <STATS>;
-	chomp $totals;
-	my @split_totals = split( / / , $totals);
-	if ( $split_totals[2] eq (today) ) {
-		$adds=$split_totals[4];
+	close(STATS);
+	if ( defined $totals ) {
+		chomp $totals;
+		my @split_totals = split( / / , $totals);
+		if ( $#split_totals eq 5 and $split_totals[2] eq $adds_today_date ) {
+			$adds=$split_totals[4];
+		}
 	}
 }
+else {
+	open(STATS, ">$stats_file");
+	print STATS "\n";
+	close(STATS);
+	logit("Stats file created");
+}
+chmod 0640, $stats_file;
+system("chgrp munin $stats_file");
 
 my (@data, $rand64, $rand, $empty, $tries, $test, $size);
 
 my $empty_notice=0; # only every hour
 my $output_stats=0;
+my $add_last_save=$adds;
 while (1) {
 	$empty=0;
 	$tries=0;
@@ -133,7 +155,7 @@ while (1) {
 		truncate(DB,tell(DB) - length($rand64));
 		close(DB);
 		if ( $rand64 ne "" ) {
-			print $rand64;
+			#print $rand64;
 			chomp($rand64);
 			$rand=decode_base64($rand64);
 			$size=length($rand);
@@ -168,17 +190,24 @@ while (1) {
 		$tries++;
 	}
 	#update total data
-	if ( time - $output_stats > 3600 ) {
+	if ( $add_last_save ne $adds and time - $output_stats > 20 ) {
+		# is it a new day
+		if ( $adds_today_date ne time2str("%D", time) ) {
+			$adds=0;
+			$adds_today_date=time2str("%D", time);
+		}
 		# Total for 03/01/2009 is 685950403 bits
-		if ( open(STATS, ">$stats_file") {
+		if ( open(STATS, ">$stats_file")) {
 			print STATS "Total for " . time2str("%D", time) . " is $adds bits\n";
+			close(STATS);
 		}
 		else {
 			logit("ERROR: Unable to open stats file");
 		}
 		$output_stats=time;
+		$add_last_save=$adds;
+		#print "added\n";
 	}
 	
 	sleep 1;
-	#print entrophy_level()." . ".$adds."\n";
 }

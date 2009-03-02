@@ -35,6 +35,9 @@ die "Database directory permissions are incorrect (".$mode.")"
 #die "Database directory is not owned by user"
 #	unless ( (stat($var_area))[2] eq (getpwnam(getlogin()))[2] );
 
+# set priority
+setpriority(0, 0, 5);
+
 my $dir = getcwd;
 $ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
 
@@ -106,9 +109,17 @@ sub get_data {
 			}
 			#chdir(dirname(abs_path($0)));
 		}
+		elsif ( not -e $src ) {
+			# not supported
+			logit("Entry \"$src\" does not exist or was not in path: ".$ENV{PATH});
+			#die "Entry \"$src\" is of a type that is not supported...";
+			return 7;
+		}
 		else {
 			# not supported
-			die "Entry \"$src\" is of a type that is not supported...";
+			logit("Entry \"$src\" is of a type that is not supported.");
+			#die "Entry \"$src\" is of a type that is not supported...";
+			return 7;
 		}
 	}
 	# test for randomness
