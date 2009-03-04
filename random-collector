@@ -16,39 +16,53 @@ use File::Basename;
 my $var_area = "/var/lib/randomdata";
 my $database = $var_area . "/database";
 
-# check that we are running as non-root
-die "Cannot run as root!"
-	unless ( not -w "/etc" );
-
-# check that we are running as owner of script   [ getlogin() is LAME ]
-#die "Needs to run as user who owns file (".(getpwnam(getlogin()))[2].")"
-#	unless ( (stat(abs_path($0)))[2] eq (getpwnam(getlogin()))[2] );
-
-#check folder for permissions
-die "Database directory does not exists"
-	unless ( -d $var_area );
-die "Database directory is not writable"
-	unless ( -w $var_area );
-my $mode = sprintf "%04o", ((stat($var_area))[2] & 07777);
-die "Database directory permissions are incorrect (".$mode.")"
-	unless ( $mode eq "0700" );
-#die "Database directory is not owned by user"
-#	unless ( (stat($var_area))[2] eq (getpwnam(getlogin()))[2] );
-
-# set priority
-setpriority(0, 0, 5);
-
-my $dir = getcwd;
-$ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
-
 # log info
 sub logit {
 	my $msg = shift;
 	openlog('random-collector', 'cons,pid', 'user');
-    syslog('notice', $msg);
-    closelog();
-	#system("logger -i -t random-collector -p kernel.info \"$msg\"");
+	syslog('notice', $msg);
+	closelog();
 }
+
+# check that we are running as owner of script   [ getlogin() is LAME ]
+if ( not -w abs_path($0) ) {
+	logit "Needs to run as user who owns file";
+	print "Needs to run as user who owns file\n";
+	exit;
+}
+# check that we are running as non-root
+if ( -w "/etc" ) {
+	logit "Cannot run as root!";
+	print "Cannot run as root!\n";
+	exit;
+}
+
+#check folder for permissions
+if ( not -d $var_area ) {
+	logit "Database directory does not exists";
+	print "Database directory does not exists\n";
+	exit;
+}
+if ( not -w $var_area ) {
+	logit "Database directory is not writable";
+	print "Database directory is not writable\n";
+	exit;
+}
+my $mode = sprintf "%04o", ((stat($var_area))[2] & 07777);
+if ( $mode ne "0700" ) {
+	logit "Database directory permissions are incorrect (".$mode.")";
+	print "Database directory permissions are incorrect (".$mode.")\n";
+	exit;
+}
+
+# set priority
+setpriority(0, 0, 2);
+
+# wait for machine (some generators need time to startup)
+sleep 15 * 60;
+
+my $dir = getcwd;
+$ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
 
 # download or obtain data
 # args: <source> <destination> <amount in kb> [username] [password]
@@ -98,31 +112,60 @@ sub get_data {
 			}
 		}
 		if ( $fullpath ne "" ) {
-			# must be a program
-			system("touch \"$dest\"");
+			if ( open(TOUCH, ">$dest") ) {
+			  print TOUCH "";
+			  close(TOUCH);
+			}
 			chmod 0600, $dest;
+			# must be a program
 			#chdir(dirname($src));
-			system($fullpath . " " . $amount . " > " . $dest);
-			if ( $? ne 0 ) {
-				logit("Failed to run " . $fullpath . " " . $amount . " > " . $dest);
-				return 5;
+			system($fullpath . " " . $amount . " > " . $dest . "&");
+			my @pid = `pgrep $src`;
+			if ( @pid and $#pid >= 0) {
+				chomp @pid;
+				# allow for a 20 kb/s connection
+				my $timeout = $amount / 20;
+				while ( (kill 0, @pid) > 0 and $timeout > 0 ) {
+					sleep 10;
+					$timeout -= 10;
+				}
+				# if it is still running, them stop it
+				if ( (kill 0, @pid) > 0 ) {
+					logit("Had to kill $src (".(kill 15, @pid)." processes)");
+				}
+			}
+			else {
+				logit("Unable to get pid for $src. Will wait 20 mins for good measure.");
+				sleep(20 * 60);
+			}
+			if ( (stat($dest))[7] ne $amount ) {
+				logit("Failed to run/finish " . $fullpath . " " . $amount . " > " . $dest);
+				logit("Ouput was ".((stat($dest))[7])." ne $amount");
+				# did we get at least 10% of waht we wanted?
+				if ( (stat($dest))[7] < (0.10 * $amount) ) {
+					# not enough
+					logit("And we did not get enough data");
+					unlink($dest);
+					return 5;
+				}
+				# otherwise just log it and continue
+				logit("But will continue because we got enough (".(stat($dest))[7]." bytes)");
 			}
 			#chdir(dirname(abs_path($0)));
 		}
-		elsif ( not -e $src ) {
-			# not supported
-			logit("Entry \"$src\" does not exist or was not in path: ".$ENV{PATH});
-			#die "Entry \"$src\" is of a type that is not supported...";
-			return 7;
-		}
 		else {
 			# not supported
-			logit("Entry \"$src\" is of a type that is not supported.");
-			#die "Entry \"$src\" is of a type that is not supported...";
-			return 7;
+			logit "Entry \"$src\" is of a type that is not supported";
+			print "Entry \"$src\" is of a type that is not supported.\n";
+			return 8;
 		}
 	}
 	# test for randomness
+	if ( open(TOUCH, ">$testfile") ) {
+	  print TOUCH "";
+	  close(TOUCH);
+	}
+	chmod 0600, $testfile;
 	system("cat \"$dest\" | rngtest -p > \"$testfile\" 2>/dev/null");
 	# format to base64, reading parts at a time to keep memory down
 	if ( -s $testfile eq 0 ) {
@@ -157,7 +200,6 @@ sub get_data {
 sub random_sort {
 	my $database_name = shift;
 	my @files = @_;
-	#open(DATABASE,">".$destination) or die ("could not open destination: $!");
 	my $f=0;
 	my @fh=();
 	foreach my $file (@files) {
@@ -168,14 +210,8 @@ sub random_sort {
 			$f++;
 		}
 	}
-	#foreach my $fileh2 (@fh) {
-	#	if ( defined($fileh2) ) {
-	#		print $fileh2 . "\n";
-	#	}
-	#}
 	
-	# open database with no memory, and lock it
-	my @db_array;
+	# open database and lock it
 	my $database_tmp=$database_name."tmp";
 	if ( not open (DATATMP , ">".$database_tmp) ) {
 		logit("Exiting because could not clear tmp database: $!");
@@ -187,16 +223,14 @@ sub random_sort {
 		logit("Exiting because could not open tmp database: $!");
 		exit;
 	}
-	#my $db = tie @db_array, "Tie::File", $database_name or die "Could not open database: $!";
-	#$db->flock;
-	#$db->defer;
+	
 	# vars
 	my $added=1;
 	my ($line, $rand_each, $t, $key);
 	my $full_line="";
 	my $rand_lines=int( 2 + rand 6 );
 	my $added_lines=0;
-	#eval {
+	
 		while ($added eq 1) {
 			$added=0;
 			foreach my $fileh (@fh) {
@@ -212,12 +246,6 @@ sub random_sort {
 							$added_lines++;
 							# print when we have our lines
 							if ($added_lines ge $rand_lines ) {
-								#print DATABASE $full_line;
-								#print DATABASE "----\n";
-								#$key=sha1_hex(Time::HiRes::time() . $full_line);
-								#print  $key . "\n";
-								#unshift @db_array, $full_line;
-								#$database_h->do( "INSERT INTO data VALUES ( '$full_line' )" );
 								print DATATMP $full_line . "\n";
 								$rand_lines=int( 2 + rand 6 );
 								$added_lines=0;
@@ -228,18 +256,6 @@ sub random_sort {
 				}
 			}
 		}
-	#	$database_h->commit;
-	#};
-	#if ($@) {
-    #  warn "Transaction aborted because $@";
-    #  # now rollback to undo the incomplete changes
-    #  # but do it in an eval{} as it may also fail
-    #  eval { $database_h->rollback };
-    #  # add other application on-error-clean-up code here
-	#}
-	# close database
-	#$db->flush;
-	#untie($db);
 	# close and remove files
 	$f=0;
 	foreach my $file (@files) {
@@ -249,16 +265,6 @@ sub random_sort {
 			$f++;
 		}
 	}
-	
-	#sysopen(FH, "numfile", O_RDWR|O_CREAT)
-    #                                or die "can't open numfile: $!";
-	#flock(FH, LOCK_EX)                     		or die "can't write-lock numfile: $!";
-	## Now we have acquired the lock, it's safe for I/O
-	#$num = <FH> || 0;                   		# DO NOT USE "or" THERE!!
-	#seek(FH, 0, 0)                      		or die "can't rewind numfile : $!";
-	#truncate(FH, 0)                     		or die "can't truncate numfile: $!";
-	#print FH $num+1, "\n"               		or die "can't write numfile: $!";
-	#close(FH)                           		or die "can't close numfile: $!";
 	
 	# open and lock file
 	my $data_line;
@@ -295,27 +301,40 @@ my ($r,$format_buf);
 
 # source
 while (1) {
-	
+		
 	# wait if we already have enough random data stocked up
 	if ( -f $database ) {
-		while ( (stat($database))[7] > 30 * 1048576 ) {
+		while ( (stat($database))[7] > 300 * 1048576 ) {
 			sleep(60);
 		}
 	}
 	
-	#foreach my $data
-	# /dev/hrandom0
+	# hrandom0 or frandom
+	my $calc_rnd0 = "/dev/hrandom0";
+	my $calc_rnd1 = "/dev/hrandom1";
+	if ( not -e $calc_rnd0 ) {
+		logit "hrandom is not installed - reverting to frandom";
+		$calc_rnd0 = "/dev/frandom";
+		$calc_rnd1 = "/dev/erandom";
+	}
+	
 	logit("Getting random data");
+	
 	# should total 300 mb (each is in mb)
-	get_data("/dev/hrandom0",	$var_area."/file1",	5);
-	get_data("qrand.sh",		$var_area."/file2",	5);
-	get_data("/dev/hrandom1",	$var_area."/file3",	5);
-	#get_data("/dev/erandom",	$var_area."/file4",	 20);
-	#get_data("MersenneTwister",	$var_area."/file5",	 50);
+	
+	get_data($calc_rnd0,		$var_area."/file1",	50);
+	get_data("qrand.sh",		$var_area."/file2",	70);
+	get_data($calc_rnd1,		$var_area."/file3",	50);
+	
+	get_data($calc_rnd0,		$var_area."/file4",	50);
+	get_data("qrand.sh",		$var_area."/file5",	70);
+	get_data($calc_rnd1,		$var_area."/file6",	50);
+	
+	#get_data("MersenneTwister",	$var_area."/file8",	 50);
 	
 	# randomly sort data into database
-	random_sort($database, $var_area."/file1", $var_area."/file2", $var_area."/file3");
-		#,$var_area."/file4", $var_area."/file5");
+	random_sort($database, $var_area."/file1", $var_area."/file2", $var_area."/file3"
+		,$var_area."/file4", $var_area."/file5", $var_area."/file6");
 	
 	logit("Finished getting random data");
 	

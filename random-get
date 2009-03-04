@@ -23,12 +23,15 @@ use MIME::Base64 qw(decode_base64);
 use Date::Format;
 
 # lowest level allowed for random pool (2000 - 4096)
-my $min_level=4000;
+my $min_level=3500;
 
 # database
 my $var_area = "/var/lib/randomdata";
 my $database = $var_area . "/database";
 my $stats_file = "/var/run/random-add.pid";
+
+# set priority
+setpriority(0, 0, -1);
 
 # rng address (run with --address command to get address)
 my $RNDADDENTROPY=0x40085203;
@@ -65,7 +68,7 @@ if ($#ARGV eq 0 and $ARGV[0] eq "--address" ) {
 	print "Rng address is $gen_RNDADDENTROPY\n";
 	if ( "$gen_RNDADDENTROPY" ne "0x".sprintf("%X",$RNDADDENTROPY) ) {
 		print "Variable \$RNDADDENTROPY is 0x".sprintf("%X",$RNDADDENTROPY)."\n";
-		print "You will need to change it manually to $gen_RNDADDENTROPY\n";
+		print "You will need to change it manually\n";
 	} else {
 		print "Current saved address is correct.\n";
 	}
@@ -76,9 +79,9 @@ use Sys::Syslog;
 # log info
 sub logit {
 	my $msg = shift;
-	openlog($0, 'cons,pid', 'user');
-    syslog('notice', $msg);
-    closelog();
+	openlog(random-add, 'cons,pid', 'user');
+	syslog('notice', $msg);
+	closelog();
 	#system("logger -i -t random-collector -p kernel.info \"$msg\"");
 }
 
@@ -112,7 +115,6 @@ sub entrophy_level {
 open(RD, ">>/dev/random") or die "Unable to open random device for writing: $!";
 
 # get total data for today from stats file
-# Total for 03/02/09 is 209237 bits
 my $adds=0;
 my $adds_today_date=time2str("%D", time);
 if ( open(STATS, "$stats_file") ) {
@@ -121,8 +123,8 @@ if ( open(STATS, "$stats_file") ) {
 	if ( defined $totals ) {
 		chomp $totals;
 		my @split_totals = split( / / , $totals);
-		if ( $#split_totals eq 5 and $split_totals[2] eq $adds_today_date ) {
-			$adds=$split_totals[4];
+		if ( $#split_totals eq 6 and $split_totals[4] eq $adds_today_date ) {
+			$adds=$split_totals[6];
 		}
 	}
 }
@@ -176,6 +178,7 @@ while (1) {
 			#	print "\nSize was not equal: ".length($size)." != ".length($e_size)."\n";
 			#}
 			$adds += $size;
+			#print ".";
 		}
 		else {
 			$empty = 1;
@@ -186,19 +189,20 @@ while (1) {
 			sleep 10;
 		}
 		#sleep 1;
-		usleep(20000);
+		usleep(5000);
 		$tries++;
 	}
 	#update total data
-	if ( $add_last_save ne $adds and time - $output_stats > 20 ) {
+	if ( $add_last_save ne $adds and time - $output_stats > 30 ) {
 		# is it a new day
 		if ( $adds_today_date ne time2str("%D", time) ) {
 			$adds=0;
 			$adds_today_date=time2str("%D", time);
 		}
-		# Total for 03/01/2009 is 685950403 bits
+		# Total added bytes for 03/30/09 is 685950403
 		if ( open(STATS, ">$stats_file")) {
-			print STATS "Total for " . time2str("%D", time) . " is $adds bits\n";
+			flock(STATS,LOCK_EX);
+			print STATS "Total added bytes for " . time2str("%D", time) . " is $adds\n";
 			close(STATS);
 		}
 		else {
@@ -209,5 +213,6 @@ while (1) {
 		#print "added\n";
 	}
 	
-	sleep 1;
+#	sleep 1;
+	usleep(50000);
 }
