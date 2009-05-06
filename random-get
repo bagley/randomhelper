@@ -79,7 +79,7 @@ use Sys::Syslog;
 # log info
 sub logit {
 	my $msg = shift;
-	openlog(random-add, 'cons,pid', 'user');
+	openlog("random-add", 'cons,pid', 'user');
 	syslog('notice', $msg);
 	closelog();
 	#system("logger -i -t random-collector -p kernel.info \"$msg\"");

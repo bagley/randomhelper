@@ -1,0 +1,68 @@
+Program to add entropy to linux kernel using (hopefully) secure sources. The sources depend on what plugins you decide to use.
+
+
+WARNING
+
+As a word of warning, I made this program for my personal use with headless 
+servers. Remote connections by way of ssh or ssl take a lot of entropy to run.
+So I made this program to get entropy from several secure sources, mix the data obtained, and then add it to the kernel enrophy pool (/dev/random). 
+
+Of course, if the random number generator sources are not secure, then generated gpg keys will be insecure, ssh and ssl connections will be breakable, and a lot of other issues and insecurities will present themselves. It is the user's responsibility (your's) to verify the integrity of the sources and the integrity of this program's input to the random device using the various tools available for random number testing.
+
+I have tested the /dev/random device using the dieharder suite of tools, which it passed.
+
+It's also recommended that you install the rng-tools, so this program can use the rngtest program to test the randomness of the generated data using the FIPS 140-2 test. Without this program you are taking a big risk of the data being not as random as it should be. (One day I may include a function to do this, but why re-invent the wheel?).
+
+
+PLUGINS
+
+You may choose the included plugins, or add your own. Note that many of these plugins require other programs to run, which must be installed and functioning before you configure and install this program.
+
+Hardware cards
+
+These are pci or usb cards you can buy and put into your machine to generate random data. Usually they create a /dev/hwrand device. If your card creates a different device, you may edit the plugin hwrand. If you have multiple devices, you may copy the plugin to hwrand1, hwrand2, etc.
+
+Qrand
+
+Obtains secure random data fron a quantum random generator. The included plugin uses the qrand binary to obtain the random data off the internet. You must obtain the QRand Command-line Utility from http://random.irb.hr/, and place it in the plugin directory before you configure and install. 
+
+You also must get an account from the site, and place the credentials into the qrand.ini file. For example, if your user name is "JonDoe" and your password is "ThePassword", edit the file to be
+
+/t:byte --binary --user="JonDoe" --pass="ThePassword"
+
+The binary needs stdc++.5
+
+Hrandom
+
+This is only for supported x86 processors. It generates randomness from the static of an x86 processor. You'll know if your system is supported if the ./configure script completes successfully.
+
+Frandom
+
+This is not a secure random generator by itself. It uses the RC4 checksum algorithm to create random data. As such, it should only be used as "filler," using a priority of 3 or less (see section on priorities). It should be noted that this generator, albiet somewhat insecure, still passes the FIPS randomness test 99% of the time.
+
+Adding Plugins
+
+To add a plugin, simply make a new folder in the plugins directory. This is in the installation folder on a new install, or $PREFIX/lib/randomhelper/plugins on current installations. You may call the folder whatever you want. Create a new executable file named "run" inside that directory which when called will output the random data to standard out (stdout). This will be piped to a checking program, if configured, or directly to a file.
+
+No arguments are given to the "run" executable. If the "run" file is not found or is not executeable, the plugin will be ignored.
+
+Remember that your plugin's output will be tested for randomness if the rngtest program is installed. All chunks of data that do not pass the test will be discarded.
+
+For priorities, on new installs a "priority" file is located in each folder, which the configure script uses to determine the values. For current installs, just edit the /etc/randomhelper file.
+
+PRIORITIES
+
+Each plugin contributes a set amount of random data to the "pool" of random data located in /var/lib/randomhelper. The scale is from 1 to 10, 10 meaning use a lot from this source, to 1 meanign use a little amount from this source. The program will take the total amount to get on each pass, given by the "size=" variable in /etc/randomhelper, and then split up among the plugins. 
+
+For example, if we had
+
+size=300
+hwrand=10
+qrand=10
+hrandom=8
+frandom=2
+
+random-collector would get 300 mb of random data consisting of 100mb from hwrand, 100mb from qrand, 80mb from hrandom, and 20mb from frandom. You don't have to worry about how the program figures that, just have each plugin have an entry. Plugins without an entry will default to 5. 
+
+
+

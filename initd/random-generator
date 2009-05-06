@@ -1,0 +1,95 @@
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides: 	     random-generator
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start random daemons
+### END INIT INFO
+#
+# make modules
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+DESC=random-add
+
+. /lib/lsb/init-functions
+
+#test $DEBIAN_SCRIPT_DEBUG && set -v -x
+
+start_rand() {
+	# frandom
+	if ! [ -e /dev/frandom ] || ! [ -e /dev/erandom ] ; then
+	  mknod /dev/frandom c 235 11
+	  chmod 444 /dev/frandom
+	  mknod /dev/erandom c 235 12
+	  chmod 444 /dev/erandom
+	fi
+	/sbin/modprobe frandom
+	
+	# hrandom
+	/sbin/modprobe hrandom
+	
+	if [ -n "$(pgrep -f "random-add")" ] \
+	 || [ -n "$(pgrep -f "random-collector")" ] ; then
+	  echo "Random get/collector already running"
+	else
+	  su - randomhelper -c "perl /home/randomhelper/random-collector" >/dev/null 2>/dev/null&
+	  su - -c "perl /home/randomhelper/random-add" >/dev/null 2>/dev/null&
+	fi
+}
+
+stop_rand() {
+	
+	if [ -n "$(pgrep -f "random-add")" ] ; then
+	  kill $(pgrep -f "random-add")
+	fi
+	if [ -n "$(pgrep -f "random-collector")" ] ; then
+	  kill $(pgrep -f "random-collector")
+	fi
+}
+
+
+case "$1" in
+  start)
+	echo "Starting $DESC"
+	
+	start_rand
+	
+    ;;
+  stop)
+	echo "Stopping $DESC"
+	
+	stop_rand
+	
+    ;;
+  restart|force-reload)
+	log_daemon_msg "Restarting $DESC"
+	stop_rand
+	sleep 2
+	start_rand
+	
+    ;;
+  status)
+  	if [ -n "$(pgrep -f "random-add")" ] ; then
+  	  echo "Random-add running"
+  	else
+  	  echo "Random-add stopped"
+  	fi
+	if [ -n "$(pgrep -f "random-collector")" ] ; then
+	  echo "Random-collector running"
+	else
+	  echo "Random-collector stopped"
+	fi
+    ;;
+  *)
+	N=/etc/init.d/module-config
+	# echo "Usage: $N {start|stop|restart|reload|force-reload}" >&2
+	echo "Usage: $N {start|stop|restart|force-reload}" >&2
+	exit 1
+	;;
+esac
+
+exit 0
+
+# vim:noet
