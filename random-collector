@@ -13,8 +13,10 @@ use Cwd qw(abs_path);
 use Sys::Syslog;
 use File::Basename;
 
-my $var_area = "/var/lib/randomdata";
+my $var_area = "/var/lib/randomhelper";
 my $database = $var_area . "/database";
+
+my $plugin_dir= "{PREFIX}/share/randomhelper/plugins";
 
 # log info
 sub logit {

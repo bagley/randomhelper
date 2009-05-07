@@ -1,6 +1,7 @@
 #! /bin/sh
+#chkconfig 10 90 50
 ### BEGIN INIT INFO
-# Provides: 	     random-generator
+# Provides: 	     randomhelper
 # Required-Start:    $local_fs
 # Required-Stop:     $local_fs
 # Default-Start:     2 3 4 5
@@ -10,57 +11,52 @@
 #
 # make modules
 
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
-DESC=random-add
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PREFIX/sbin
+DESC=randomhelper
 
 . /lib/lsb/init-functions
 
 #test $DEBIAN_SCRIPT_DEBUG && set -v -x
 
 start_rand() {
-	# frandom
-	if ! [ -e /dev/frandom ] || ! [ -e /dev/erandom ] ; then
-	  mknod /dev/frandom c 235 11
-	  chmod 444 /dev/frandom
-	  mknod /dev/erandom c 235 12
-	  chmod 444 /dev/erandom
-	fi
-	/sbin/modprobe frandom
 	
-	# hrandom
-	/sbin/modprobe hrandom
-	
-	if [ -n "$(pgrep -f "random-add")" ] \
-	 || [ -n "$(pgrep -f "random-collector")" ] ; then
-	  echo "Random get/collector already running"
+	if [ -n "$(pgrep -f 'random-add')" ] \
+	 || [ -n "$(pgrep -f 'random-collector')" ] ; then
+	  echo "Random get and/or collector already running"
 	else
-	  su - randomhelper -c "perl /home/randomhelper/random-collector" >/dev/null 2>/dev/null&
-	  su - -c "perl /home/randomhelper/random-add" >/dev/null 2>/dev/null&
+	  su - $RANDUSER -c "perl /home/randomhelper/random-collector &" >/dev/null 2>/dev/null&
+	  su - -c "perl /home/randomhelper/random-add &" >/dev/null 2>/dev/null&
 	fi
+	
 }
 
 stop_rand() {
 	
-	if [ -n "$(pgrep -f "random-add")" ] ; then
+	if [ -n "$(pgrep -f 'random-add')" ] ; then
 	  kill $(pgrep -f "random-add")
 	fi
-	if [ -n "$(pgrep -f "random-collector")" ] ; then
+	if [ -n "$(pgrep -f 'random-collector')" ] ; then
 	  kill $(pgrep -f "random-collector")
 	fi
+	
 }
 
 
 case "$1" in
   start)
-	echo "Starting $DESC"
+	echo -n "Starting $DESC ... "
 	
 	start_rand
 	
+	echo " OK"
+	
     ;;
   stop)
-	echo "Stopping $DESC"
+	echo -n "Stopping $DESC ... "
 	
 	stop_rand
+	
+	echo " OK"
 	
     ;;
   restart|force-reload)

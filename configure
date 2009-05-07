@@ -55,10 +55,6 @@ do
     shift
 done
 
-echo "PREFIX=$PREFIX" >> "$installdir/config.status"
-echo "INIT=$INIT" >> "$installdir/config.status"
-echo "RANDUSER=$RANDUSER" >> "$installdir/config.status"
-
 error() {
 	echo "Error: $*"
 	exit
@@ -76,6 +72,15 @@ check_path() {
 	done
 	error "Could not find $1"
 }
+
+# check paths
+
+echo "PREFIX=$PREFIX" >> "$installdir/config.status"
+
+[ -d "$INIT" ] || error "Init directory $INIT not found"
+echo "INIT=$INIT" >> "$installdir/config.status"
+
+echo "RANDUSER=$RANDUSER" >> "$installdir/config.status"
 
 # is this linux
 echo "Checking for /dev/random"
@@ -144,13 +149,25 @@ else
 fi
 
 # check user
-if [ -z "$(grep $RANDUSER: /etc/passwd)" ] ; then
+if [ -z "$(grep $RANDUSER: /etc/passwd)" -a -x $(which adduser) ] ; then
   MAKEUSER="(User will be created)"
   echo "MAKEUSER=y" >> "$installdir/config.status"
-else
-  MAKEUSER="(User exists)"
-  echo "MAKEUSER=n" >> "$installdir/config.status"
+else 
+  if ! [ -x $(which adduser) ] ; then
+    MAKEUSER="(adduser not found - will still try to chmod to $RANDUSER)"
+    echo "MAKEUSER=n" >> "$installdir/config.status"
+  else
+    MAKEUSER="(User exists)"
+    echo "MAKEUSER=n" >> "$installdir/config.status"
+  fi
 fi
+
+# check random device address, and change if needed
+echo -n "Getting random number generator address ... "
+cd "$installdir"
+RNGADDRESS=$(perl ./random-get --address | grep "Rng address is" | cut -f4 -d' ')
+echo "RNGADDRESS=$RNGADDRESS" >> "$installdir/config.status"
+echo "OK"
 
 # output
 cat <<EOF2
@@ -167,6 +184,8 @@ Summary:
    initd: $INIT
    
    user: $RANDUSER $MAKEUSER
+   
+   rng address: $RNGADDRESS (Needed internally)
    
 Now run ./install.sh as root
 
