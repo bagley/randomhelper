@@ -162,11 +162,34 @@ else
   fi
 fi
 
+
 # check random device address, and change if needed
 echo -n "Getting random number generator address ... "
 cd "$installdir"
-RNGADDRESS=$(perl ./random-get --address | grep "Rng address is" | cut -f4 -d' ')
+RNGADDRESS=$(perl ./random-add --address | grep "Rng address is" | cut -f4 -d' ')
 echo "RNGADDRESS=$RNGADDRESS" >> "$installdir/config.status"
+echo "OK"
+
+MUNIN="no"
+[ -d "/etc/munin/plugins" ] && MUNIN="yes"
+echo "MUNIN=$MUNIN" >> "$installdir/config.status"
+
+# sed files
+echo -n "Outputing files ... "
+cd "$installdir"
+rm -f random-collector.sed random-add.sed
+cp random-collector random-collector.sed
+sed -i.bak -e"s|{PREFIX}|$PREFIX|g" random-collector.sed
+cp random-add random-add.sed
+sed -i.bak -e"s|my \$RNDADDENTROPY=0x40085203;|my \$RNDADDENTROPY=$RNGADDRESS;|"\
+   random-add.sed
+rm -f random-collector.sed.bak random-add.sed.bak
+
+cd "$installdir/initd"
+rm -f randomhelper.sed
+cp randomhelper randomhelper.sed
+sed -i.bak -e"s|\$PREFIX|$PREFIX|g" -e"s|\$RANDUSER|$RANDUSER|g" randomhelper.sed
+rm -f randomhelper.sed.bak
 echo "OK"
 
 # output
@@ -186,6 +209,8 @@ Summary:
    user: $RANDUSER $MAKEUSER
    
    rng address: $RNGADDRESS (Needed internally)
+   
+   munin plugin: $MUNIN
    
 Now run ./install.sh as root
 

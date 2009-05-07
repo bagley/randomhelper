@@ -20,17 +20,17 @@ You may choose the included plugins, or add your own. Note that many of these pl
 
 Hardware cards
 
-These are pci or usb cards you can buy and put into your machine to generate random data. Usually they create a /dev/hwrand device. If your card creates a different device, you may edit the plugin hwrand. If you have multiple devices, you may copy the plugin to hwrand1, hwrand2, etc.
+These are pci or usb cards you can buy and put into your machine to generate random data. Usually they create a /dev/hwrng device. If your card creates a different device, you may edit the plugin hwrand. If you have multiple devices, you may copy the plugin to hwrand1, hwrand2, etc.
 
 Qrand
 
 Obtains secure random data fron a quantum random generator. The included plugin uses the qrand binary to obtain the random data off the internet. You must obtain the QRand Command-line Utility from http://random.irb.hr/, and place it in the plugin directory before you configure and install. 
 
-You also must get an account from the site, and place the credentials into the qrand.ini file. For example, if your user name is "JonDoe" and your password is "ThePassword", edit the file to be
+You also must get an account from the site, and either run random-collector --config, or place the credentials into the qrand.ini file. For example, if your user name is "JonDoe" and your password is "ThePassword", edit the file to be
 
 /t:byte --binary --user="JonDoe" --pass="ThePassword"
 
-The binary needs stdc++.5
+The binary needs stdc++.5. Haven't had much luck using newer compilers with the source. Let me know if you have better luck.
 
 Hrandom
 
@@ -44,11 +44,19 @@ Adding Plugins
 
 To add a plugin, simply make a new folder in the plugins directory. This is in the installation folder on a new install, or $PREFIX/lib/randomhelper/plugins on current installations. You may call the folder whatever you want. Create a new executable file named "run" inside that directory which when called will output the random data to standard out (stdout). This will be piped to a checking program, if configured, or directly to a file.
 
-No arguments are given to the "run" executable. If the "run" file is not found or is not executeable, the plugin will be ignored.
+Four possible arguments are given to the executable: 
+
+--check          During install and before getting random data, each plugin is run with this. A exit value of 0 signifies the plugin can be run. Any other value is considers the plugin nonfunctional.
+
+--config         When random-collector --config is run, it runs each plugin with this argument. This may be nice for configuring the plugin with credential and settings. If your plugin doesn't have any settings, just have it ignore it. No exit values are noted.
+
+--priority       How much random data, on a scale of 1 to 10, do we want from this plugin. This is only relevant during install. After install, those settings are kept in /etc/randomhelper. See the section on Priorities for more info.
+
+--get <amount>   To get the random data this argument is run, with a second argument of how much to return, in megabytes. So if random-collector wants 100 MB of data, it will pass the arguments '--get 100'
+
+If the executable is not found or is not executeable, the plugin will be ignored.
 
 Remember that your plugin's output will be tested for randomness if the rngtest program is installed. All chunks of data that do not pass the test will be discarded.
-
-For priorities, on new installs a "priority" file is located in each folder, which the configure script uses to determine the values. For current installs, just edit the /etc/randomhelper file.
 
 
 PRIORITIES
@@ -63,7 +71,7 @@ qrand=10
 hrandom=8
 frandom=2
 
-random-collector would get 300 mb of random data consisting of 100mb from hwrand, 100mb from qrand, 80mb from hrandom, and 20mb from frandom. You don't have to worry about how the program figures that, just have each plugin have an entry. Plugins without an entry will default to 5. 
+random-collector would get 300 mb of random data consisting of 100mb from hwrand, 100mb from qrand, 80mb from hrandom, and 20mb from frandom. You don't have to worry about how the program figures that, just make sure each plugin has an entry. Plugins without an entry will default to 5. 
 
 
 

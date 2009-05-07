@@ -11,7 +11,7 @@
 #
 # make modules
 
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PREFIX/sbin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PREFIX/bin:$PREFIX/sbin
 DESC=randomhelper
 
 . /lib/lsb/init-functions
@@ -24,8 +24,8 @@ start_rand() {
 	 || [ -n "$(pgrep -f 'random-collector')" ] ; then
 	  echo "Random get and/or collector already running"
 	else
-	  su - $RANDUSER -c "perl /home/randomhelper/random-collector &" >/dev/null 2>/dev/null&
-	  su - -c "perl /home/randomhelper/random-add &" >/dev/null 2>/dev/null&
+	  su - $RANDUSER -c "perl random-collector &" >/dev/null 2>/dev/null&
+	  su - -c "perl random-add &" >/dev/null 2>/dev/null&
 	fi
 	
 }

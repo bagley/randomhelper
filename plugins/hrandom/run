@@ -26,6 +26,11 @@ case $1 in
 		exit
 		;;
 		
+	--priority)
+		echo 8
+		exit
+		;;
+		
 	--get) 
 		[ -z "$2" ] || exit 1
 		#if [ -x $math ] ; then  # removed until futher testing on second device

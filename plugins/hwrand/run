@@ -1,6 +1,6 @@
 #!/bin/sh
 
-randdevice=/dev/hwrand
+randdevice=/dev/hwrng
 
 case $1 in 
 	
@@ -18,6 +18,11 @@ case $1 in
 		;;
 		
 	--config)
+		exit
+		;;
+		
+	--priority)
+		echo 10
 		exit
 		;;
 		

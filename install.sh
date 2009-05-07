@@ -73,7 +73,7 @@ else
 fi
 
 # make dirs
-for EACH in "$PREFIX/bin" "$PREFIX/sbin" "$PREFIX/share/randomhelper" ; do
+for EACH in "$PREFIX/bin" "$PREFIX/sbin" "$PREFIX/share/randomhelper/plugins" ; do
   set -x
   mkdir -p --mode=755 "$EACH" || error "Could not make directory $EACH"
   set +x
@@ -88,19 +88,15 @@ set +x
 echo "Performing install"
 set -x
 cd "$installdir"
-
-install -o "$RANDUSER" -g "$RANDUSER" -m 0700 random-collector \
+install -o "$RANDUSER" -g "$RANDUSER" -m 0700 random-collector.sed \
   "$PREFIX/sbin/random-collector"
-sed -i '' -e"s/{PREFIX}/$PREFIX/g" "$PREFIX/sbin/random-add"
-
-install -m 0700 random-get "$PREFIX/sbin/random-add"
-sed -i '' -e"s/my \$RNDADDENTROPY=0x40085203;/my \$RNDADDENTROPY=$RNGADDRESS;/"\
-   "$PREFIX/sbin/random-add"
+install -m 0700 random-get.sed "$PREFIX/sbin/random-add"
+rm -f random-collector.sed random-get.sed
 
 cd "$installdir/initd"
-install -m 755 randomhelper "$INIT/randomhelper"
-sed -i '' -e"s/\$PREFIX/$PREFIX/g" "$INIT/randomhelper"
-sed -i '' -e"s/\$RANDUSER/$RANDUSER/g" "$INIT/randomhelper"
+install -m 755 randomhelper.sed "$INIT/randomhelper"
+rm -f randomhelper.sed
+
 set +x
 
 # set priorities
@@ -113,10 +109,20 @@ for EACH in $plugins ; do
   install -d -o "$RANDUSER" -g "$RANDUSER" -m 0700 $EACH \
     "$PREFIX/share/randomhelper/plugins/$EACH"
   set +x
-  priority=50
-  [ -f "$EACH/priority" ] && priority=$(cat "$EACH/priority")
+  priority=5
+  priority_test=$("$PREFIX/share/randomhelper/plugins/$EACH" --priority)
+  if [ $priority_test -ge 1 -a $priority_test -le 10 ] ; then
+    priority=priority_test
+  fi
   echo "$EACH=$priority" >> "/etc/randomhelper"
 done
 
 set +x
+
+# configure program
+read -p "Would you like to configure the plugins now? (y/n) " RESP
+if [ "$RESP" = "y" ] ; then
+  "$PREFIX/sbin/random-collector" --config
+fi
+
 exit

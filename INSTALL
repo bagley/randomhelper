@@ -1,5 +1,4 @@
-Program to add entropy to linux kernel using (hopefully) secure sources. The 
-sources depend on what plugins you decide to use.
+Program to add entropy to linux kernel using (hopefully) secure sources. The sources depend on what plugins you decide to use.
 
 You should see the README for information on plugins, priorites, and warnings.
 

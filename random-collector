@@ -16,7 +16,7 @@ use File::Basename;
 my $var_area = "/var/lib/randomhelper";
 my $database = $var_area . "/database";
 
-my $plugin_dir= "{PREFIX}/share/randomhelper/plugins";
+my $plugin_dir = "{PREFIX}/share/randomhelper/plugins";
 
 # log info
 sub logit {
@@ -55,6 +55,25 @@ if ( $mode ne "0700" ) {
 	logit "Database directory permissions are incorrect (".$mode.")";
 	print "Database directory permissions are incorrect (".$mode.")\n";
 	exit;
+}
+
+if ( not -d $plugin_dir ) {
+	logit "Plugin directory does not exist or is inaccessable";
+	print "Plugin directory does not exist or is inaccessable";
+	exit;
+}
+
+# configure
+if ( $#ARGV eq 0 and $ARGV[0] eq "--config") {
+	opendir(DIR,$plugin_dir) || die "Could not open $plugin_dir: $!";
+	my @plugins=grep( /!^./, readdir(DIR));
+	closedir(DIR);
+	for my $plugin (@plugins) {
+		my $plugin_run=$plugin_dir . "/" . $plugins . "/" . "run";
+		if ( -x $plugin_run ) {
+			system($plugin_run." --config");
+		}
+	}
 }
 
 # set priority

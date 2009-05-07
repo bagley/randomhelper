@@ -53,6 +53,11 @@ case $1 in
 		fi
 		;;
 		
+	--priority)
+		echo 10
+		exit
+		;;
+		
 	--get)  
 		if [ -z "$2" ] ; then
 		  exit #echo will go into pool
