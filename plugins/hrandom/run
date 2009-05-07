@@ -1,0 +1,47 @@
+#!/bin/sh
+
+maindev="/dev/hrandom0"
+#otherdev="/dev/hrandom1"
+
+#math=$(which expr)
+
+case $1 in 
+	
+	--check)
+		if ! [ -e "$maindev" ] ; then
+		 #-o -e "$otherdev" ] ; then
+			echo "$maindev or $otherdev not found"
+			exit 1
+		fi
+		
+		if ! [ -x /bin/dd ] ; then
+			echo "dd not found"
+			exit 1
+		fi
+		exit 0
+		
+		;;
+		
+	--config)
+		exit
+		;;
+		
+	--get) 
+		[ -z "$2" ] || exit 1
+		#if [ -x $math ] ; then  # removed until futher testing on second device
+		#  amount=$($math $2 \* 1024)
+		#  main=$($math $amount \/ 4 \* 3)
+		#  other=$($math $amount \/ 4)
+		#  dd if="$maindev" bs=1K count=$main
+		#  dd if="$otherdev" bs=1K count=$other
+		#else
+		  dd if="$maindev" bs=1M count=$2
+		#fi
+		exit
+		;;
+		
+	*) echo "Usage < --check | --config | --get <megabytes> >"
+		exit
+		;;
+		
+esac

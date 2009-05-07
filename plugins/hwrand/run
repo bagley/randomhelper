@@ -1,0 +1,33 @@
+#!/bin/sh
+
+randdevice=/dev/hwrand
+
+case $1 in 
+	
+	--check)
+		if ! [ -e "$randdevice" ] ; then
+			echo "$randdevice not found"
+			exit 1
+		fi
+		if ! [ -x /bin/dd ] ; then
+			echo "dd not found"
+			exit 1
+		fi
+		exit 0
+		
+		;;
+		
+	--config)
+		exit
+		;;
+		
+	--get) 
+		dd if="$randdevice" bs=1M count=$2
+		exit
+		;;
+		
+	*) echo "Usage < --check | --config | --get <megabytes> >"
+		exit
+		;;
+		
+esac	

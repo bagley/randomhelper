@@ -2,15 +2,13 @@
 
 # open database and if enrophy level is too low place data into /dev/random
 
-$ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin";
-
 use strict;
 
 use warnings;
 
 require "sys/ioctl.ph";
 
-require '_h2ph_pre.ph';
+#require '_h2ph_pre.ph';
 
 use File::Temp qw( tempdir );
 
@@ -21,6 +19,8 @@ use Fcntl qw(:DEFAULT :flock);
 use MIME::Base64 qw(decode_base64);
 
 use Date::Format;
+
+$ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin";
 
 # lowest level allowed for random pool (2000 - 4096)
 my $min_level=3500;

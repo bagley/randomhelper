@@ -1,0 +1,69 @@
+#!/bin/sh
+
+clean_up() {
+	killall qrand
+	exit 1
+}
+
+qconfig=qrbg.ini
+
+case $1 in 
+	
+	--check)
+		# check binary existance
+		if ! [ -x "./qrand" ] ; then
+			echo "qrand binary not found"
+			exit 1
+		fi
+		# can we run it?
+		if [ $(./qrand --help | grep -c Quantum) -eq 0 ] ; then
+			echo "Unable to run qrand binary. You may need to install libstdc++5 (not just 6)."
+			exit 1
+		fi
+		exit 0
+		;;
+		
+	--config)
+	  	# check binary existance
+		if ! [ -x "./qrand" ] ; then
+			echo "qrand binary not found"
+			exit 1
+		fi
+		# check config
+		[ -f ./$qconfig ] || echo "" > ./$qconfig
+		if ! [ -w ./$qconfig ] ; then
+		  echo "Error: cannot write to $qconfig"
+		  exit 1
+		fi
+		read -p "Would you like to enter/change the user name and password? (y/n) " RESP
+		echo
+		if [ "$RESP" = "y" ] ; then
+		  read -p "Username: " username
+		  pwd1="none"
+		  stty -echo
+		  while [ "$pwd1" != "$pwd2" ] ; do
+		    read -p "Password (no echo): " pwd1 ; echo
+		    read -p "Again: " pwd2 ; echo
+		  done
+		  stty echo
+		  # write it out
+		  echo -n "/t:byte --binary --user=\"$username\" --pass=\"$pwd1\"" > ./$qconfig
+		  echo "Done"
+		  echo
+		fi
+		;;
+		
+	--get)  
+		if [ -z "$2" ] ; then
+		  exit #echo will go into pool
+		fi
+		trap "clean_up" SIGINT SIGHUP SIGTERM
+		./qrand /N:$2
+		exit
+		;;
+		
+	*) echo "Usage < --check | --config | --get <megabytes> >"
+		exit
+		;;
+		
+esac

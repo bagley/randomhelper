@@ -1,0 +1,173 @@
+#!/bin/sh
+
+PATH="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin"
+
+installdir=$(pwd)
+
+rm -f "$installdir/config.status"
+
+help_user() {
+	cat <<EOF
+Options: $0 
+  
+  --prefix=<path>       Where to install
+                        defaults to /usr/local
+                       
+  --initd=<dir>         Where to place the initd files
+                        (note YOU must activate it)
+                        Defaults to /etc/init.d
+  
+  --disable=<plugin>    Forceable disable a plugin that 
+                        would have otherwise been used.
+                        By default we detect which plugins
+                        can be used.
+                        
+   --user=<username>    random-collector should be run with normal
+                        user credentials. The default is randomhelper.
+                        You can specify a different user, but keep in
+                        mind this user and its group have access to the
+                        random data 'database,' which may be viewed as
+                        a security issue.
+                        If this account does not exist, it will be created.
+EOF
+	exit
+}
+
+# get vars, if any
+PREFIX=/usr/local
+INIT=/etc/init.d
+RANDUSER=randomhelper
+DISABLED=""
+while [ $# -gt 0 ]
+do
+    case "$1" in
+        --prefix=* ) PREFIX=$(echo $1 | cut -f2 -d' ') ;;
+        
+        --initd=* ) INIT=$(echo $1 | cut -f2 -d' ') ;;
+        
+        --disable=* ) DISABLED="$DISABLED $(echo $1 | cut -f2 -d' ')" ;;
+        
+        --user=*) RANDUSER=$(echo $1 | cut -f2 -d' ') ;;
+        
+        *) help_user ;;
+        
+    esac
+    shift
+done
+
+echo "PREFIX=$PREFIX" >> "$installdir/config.status"
+echo "INIT=$INIT" >> "$installdir/config.status"
+echo "RANDUSER=$RANDUSER" >> "$installdir/config.status"
+
+error() {
+	echo "Error: $*"
+	exit
+}
+
+check_path() {
+	echo -n "Checking for $1 ... "
+	current=$(echo $PATH | sed 's/:/ /g')
+	for EACH in $current ; do
+		if [ -x "$EACH/$1" ] ; then
+			echo "$EACH/$1"
+			RET="$EACH/$1"
+			return 1
+		fi
+	done
+	error "Could not find $1"
+}
+
+# is this linux
+echo "Checking for /dev/random"
+[ -e /dev/random ] || error "/dev/random device was not found (is this linux?)"
+
+# gcc?
+check_path gcc
+GCC=$RET
+echo "GCC=$GCC" >> "$installdir/config.status"
+
+# perl?
+check_path perl
+PERL=$RET
+echo "PERL=$PERL" >> "$installdir/config.status"
+
+# rngtool
+echo -n "Checking for rngtest ... "
+for EACH in $(echo $PATH | sed 's/:/ /g') ; do
+	rng="$EACH/rngtest"
+	if [ -x "$rng" ] ; then
+		echo " $rng"
+		RNGTEST="$rng"
+	fi
+done
+if ! [ -x "$RNGTEST" ] ; then
+  echo "WARNING not found"
+  RNGTEST="NOT FOUND. Random data will not be checked against FIPS, 
+            which could result in adding insecure (guessable) random
+            data to the kernel pool. It's your funeral."
+else
+  echo "rngtest=$RNGTEST" >> "$installdir/config.status"
+fi
+
+
+# perl modules
+perl ./config.perl
+[ $? -eq 0 ] || error "PERL check failed"
+
+# plugin time
+echo "Checking plugins"
+
+plugins=""
+cd "$installdir/plugins"
+for EACH in $(ls) ; do
+	cd "$installdir/plugins"
+	if [ -d "$EACH" -a $(echo $DISABLED | grep -c $EACH) -eq 0 ] ; then
+	  echo -n "$EACH ... "
+	  cd "$installdir/plugins/$EACH"
+	  if [ -x ./run ] ; then
+		output=$(./run --check)
+		if [ $? -eq 0 ] ; then
+		  echo "OK"
+		  plugins="$plugins $EACH"
+		else
+		  echo "Disabled -> $output"
+		fi
+	  fi
+	fi
+done
+
+if [ -z "$plugins" ] ; then
+  plugins="No plugins found. You may still install, but without 
+            any plugins, this program is useless."
+else
+  echo "plugins=$plugins" >> "$installdir/config.status"
+fi
+
+# check user
+if [ -z "$(grep $RANDUSER: /etc/passwd)" ] ; then
+  MAKEUSER="(User will be created)"
+  echo "MAKEUSER=y" >> "$installdir/config.status"
+else
+  MAKEUSER="(User exists)"
+  echo "MAKEUSER=n" >> "$installdir/config.status"
+fi
+
+# output
+cat <<EOF2
+Summary:
+   
+   perl: $PERL
+   
+   rngtest: $RNGTEST
+   
+   plugins: $plugins
+   
+   prefix: $PREFIX
+
+   initd: $INIT
+   
+   user: $RANDUSER $MAKEUSER
+   
+Now run ./install.sh as root
+
+EOF2

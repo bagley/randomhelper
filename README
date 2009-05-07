@@ -50,6 +50,7 @@ Remember that your plugin's output will be tested for randomness if the rngtest 
 
 For priorities, on new installs a "priority" file is located in each folder, which the configure script uses to determine the values. For current installs, just edit the /etc/randomhelper file.
 
+
 PRIORITIES
 
 Each plugin contributes a set amount of random data to the "pool" of random data located in /var/lib/randomhelper. The scale is from 1 to 10, 10 meaning use a lot from this source, to 1 meanign use a little amount from this source. The program will take the total amount to get on each pass, given by the "size=" variable in /etc/randomhelper, and then split up among the plugins. 

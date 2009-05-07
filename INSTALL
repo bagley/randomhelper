@@ -1,14 +1,14 @@
-
 Program to add entropy to linux kernel using (hopefully) secure sources. The 
 sources depend on what plugins you decide to use.
 
 You should see the README for information on plugins, priorites, and warnings.
 
+You may have to install some perl modules. The configure script will check for these and let you know about problems.
+
+You need Date::Format. The others are usually part of perl core: File::Temp, Time::HiRes, MIME::Base64, Sys::Syslog, and File::Basename.
+
 To install, simply run
 
 [ as user ] ./configure
 
-You may have to install some perl modules like Time::Date and such. The configure
-script will check for these and let you know about problems.
-  
 [ as root ] ./install.sh
