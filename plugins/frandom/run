@@ -10,7 +10,7 @@ case $1 in
 	--check)
 		if ! [ -e "$maindev" ] ; then
 		 #-o -e "$otherdev" ] ; then
-			echo "$maindev or $otherdev not found"
+			echo "$maindev not found"
 			exit 1
 		fi
 		
