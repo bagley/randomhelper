@@ -82,7 +82,6 @@ sub logit {
 	openlog("random-add", 'cons,pid', 'user');
 	syslog('notice', $msg);
 	closelog();
-	#system("logger -i -t random-collector -p kernel.info \"$msg\"");
 }
 
 # data structure for random pool adding

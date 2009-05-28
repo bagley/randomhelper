@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 dir=randomhelper-0.2
 
 rm -drf "./$dir"

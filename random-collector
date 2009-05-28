@@ -33,9 +33,21 @@ if ( not -w abs_path($0) ) {
 	exit;
 }
 # check that we are running as non-root
-if ( -w "/etc" ) {
-	logit "Cannot run as root!";
-	print "Cannot run as root!\n";
+if ( -w "/" ) {
+	print "Cannot run as root! Attepmting to drop privleges\n";
+	# try to drop privleges
+	my $uid=(stat($var_area))[0];
+	if ( $uid eq 0 ) {
+		logit "Random user home directory $var_area is owned by root!? Exiting...";
+		print "Random user home directory $var_area is owned by root!? Exiting...\n";
+		exit;
+	}
+	my $randuser = (getpwuid($uid))[0];
+	print "Trying as user $randuser\n"; 
+	logit "Trying as user $randuser\n"; 
+	my $passargs="";
+	if ( $#ARGV eq 0 and $ARGV[0] eq "--config") { $passargs="--config"; }
+	exec("su - \"$randuser\" -c \"".abs_path($0)." $passargs\"");
 	exit;
 }
 
@@ -65,15 +77,19 @@ if ( not -d $plugin_dir ) {
 
 # configure
 if ( $#ARGV eq 0 and $ARGV[0] eq "--config") {
-	opendir(DIR,$plugin_dir) || die "Could not open $plugin_dir: $!";
+	if ( not opendir(DIR,$plugin_dir) ) {
+		logit "Could not open $plugin_dir: $!";
+		exit;
+	}
 	my @plugins=grep( /!^./, readdir(DIR));
 	closedir(DIR);
 	for my $plugin (@plugins) {
-		my $plugin_run=$plugin_dir . "/" . $plugins . "/" . "run";
+		my $plugin_run=$plugin_dir . "/" . $plugin . "/" . "run";
 		if ( -x $plugin_run ) {
 			system($plugin_run." --config");
 		}
 	}
+	exit;
 }
 
 # set priority

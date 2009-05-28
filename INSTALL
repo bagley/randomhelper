@@ -4,10 +4,10 @@ You should see the README for information on plugins, priorites, and warnings.
 
 You may have to install some perl modules. You need Date::Format (libtimedate-perl on debian). The others are usually part of perl core: File::Temp, Time::HiRes, MIME::Base64, Sys::Syslog, and File::Basename. The configure script will check for these and let you know about problems.
 
-To install, simply run
+To install, simply run:
 
 [ as user ] ./configure
 
-Verify output summary.
+After verifying output summary, run:
 
 [ as root ] ./install.sh

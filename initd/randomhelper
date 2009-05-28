@@ -24,7 +24,15 @@ start_rand() {
 	 || [ -n "$(pgrep -f 'random-collector')" ] ; then
 	  echo "Random get and/or collector already running"
 	else
+	  # random-collector must run under its user privlges
+	  # use the following lines if su doesnt work. Just change
+	  # 'su - $RANDUSER -c' to 'su - -c'
+	  
+	  #chown "$RANDUSER:$RANDSER" $PREFIX/sbin/random-collector
+	  #chmod 4700 $PREFIX/sbin/random-collector
+	  
 	  su - $RANDUSER -c "perl random-collector &" >/dev/null 2>/dev/null&
+	  
 	  su - -c "perl random-add &" >/dev/null 2>/dev/null&
 	fi
 	
@@ -87,5 +95,3 @@ case "$1" in
 esac
 
 exit 0
-
-# vim:noet

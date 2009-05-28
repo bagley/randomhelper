@@ -90,8 +90,8 @@ set -x
 cd "$installdir"
 install -o "$RANDUSER" -g "$RANDUSER" -m 0700 random-collector.sed \
   "$PREFIX/sbin/random-collector"
-install -m 0700 random-get.sed "$PREFIX/sbin/random-add"
-rm -f random-collector.sed random-get.sed
+install -m 0700 random-add.sed "$PREFIX/sbin/random-add"
+rm -f random-collector.sed random-add.sed
 
 cd "$installdir/initd"
 install -m 755 randomhelper.sed "$INIT/randomhelper"
