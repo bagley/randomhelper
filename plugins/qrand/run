@@ -59,9 +59,7 @@ case $1 in
 		;;
 		
 	--get)  
-		if [ -z "$2" ] ; then
-		  exit #echo will go into pool
-		fi
+		[ -n "$2" ] || exit 1
 		trap "clean_up" SIGINT SIGHUP SIGTERM
 		./qrand /N:$2
 		exit

@@ -31,7 +31,7 @@ if [ -n "$1" ] ; then
     "$INIT/randomhelper" stop
     rm -f "$INIT/randomhelper"
   fi
-  rm -f "/etc/randomhelper"
+  #rm -f "/etc/randomhelper"
   rm -f "$PREFIX/sbin/random-collector"
   rm -f "$PREFIX/sbin/random-add"
   rm -drf "$PREFIX/share/randomhelper"
@@ -39,9 +39,12 @@ if [ -n "$1" ] ; then
   
   # remove database
   echo "Would you like to remove the database of random data?"
+  echo "This is located at /var/lib/randomhelper"
   read -p "This file usually takes up over 300 MB of space. (y/n)" RESP
   if [ "$RESP" = "y" ] ; then
     set -x
+    rm -f /var/lib/randomhelper/tmp/*
+    rmdir /var/lib/randomhelper/tmp
     rm -f /var/lib/randomhelper/*
     rmdir /var/lib/randomhelper
     set +x
@@ -91,11 +94,11 @@ cd "$installdir"
 install -o "$RANDUSER" -g "$RANDUSER" -m 0700 random-collector.sed \
   "$PREFIX/sbin/random-collector"
 install -m 0700 random-add.sed "$PREFIX/sbin/random-add"
-rm -f random-collector.sed random-add.sed
+#rm -f random-collector.sed random-add.sed
 
 cd "$installdir/initd"
 install -m 755 randomhelper.sed "$INIT/randomhelper"
-rm -f randomhelper.sed
+#rm -f randomhelper.sed
 
 set +x
 
@@ -106,14 +109,17 @@ echo "size=300" > "/etc/randomhelper"
 cd "$installdir/plugins"
 for EACH in $plugins ; do
   set -x
-  install -d -o "$RANDUSER" -g "$RANDUSER" -m 0700 $EACH \
-    "$PREFIX/share/randomhelper/plugins/$EACH"
+  #install -d -o "$RANDUSER" -g "$RANDUSER" "$installdir/plugins/$EACH" \
+  #  "$PREFIX/share/randomhelper/plugins/$EACH"
+  cp -pr "$installdir/plugins/$EACH" "$PREFIX/share/randomhelper/plugins/"
+  chown "$RANDUSER:$RANDUSER" -R "$PREFIX/share/randomhelper/plugins/$EACH"
   set +x
   priority=5
-  priority_test=$("$PREFIX/share/randomhelper/plugins/$EACH" --priority)
+  priority_test=$("$PREFIX/share/randomhelper/plugins/$EACH/run" --priority)
   if [ $priority_test -ge 1 -a $priority_test -le 10 ] ; then
-    priority=priority_test
+    priority=$priority_test
   fi
+  echo "$EACH priority set to $priority"
   echo "$EACH=$priority" >> "/etc/randomhelper"
 done
 
@@ -122,7 +128,7 @@ set +x
 # configure program
 read -p "Would you like to configure the plugins now? (y/n) " RESP
 if [ "$RESP" = "y" ] ; then
-  "$PREFIX/sbin/random-collector" --config
+  su - "$RANDUSER" -c "$PREFIX/sbin/random-collector --config"
 fi
 
 exit

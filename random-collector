@@ -13,10 +13,20 @@ use Cwd qw(abs_path);
 use Sys::Syslog;
 use File::Basename;
 
+#######################################
+
+my $dir = getcwd;
+$ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
+
 my $var_area = "/var/lib/randomhelper";
+
 my $database = $var_area . "/database";
 
-my $plugin_dir = "{PREFIX}/share/randomhelper/plugins";
+my $plugin_dir = "/usr/local/share/randomhelper/plugins";
+
+my $conf = "/etc/randomhelper";
+
+#######################################
 
 # log info
 sub logit {
@@ -24,82 +34,14 @@ sub logit {
 	openlog('random-collector', 'cons,pid', 'user');
 	syslog('notice', $msg);
 	closelog();
+	print $msg . "\n";
 }
 
-# check that we are running as owner of script   [ getlogin() is LAME ]
-if ( not -w abs_path($0) ) {
-	logit "Needs to run as user who owns file";
-	print "Needs to run as user who owns file\n";
-	exit;
+sub error {
+	my $msg = shift;
+	logit($msg);
+	exit 1;
 }
-# check that we are running as non-root
-if ( -w "/" ) {
-	print "Cannot run as root! Attepmting to drop privleges\n";
-	# try to drop privleges
-	my $uid=(stat($var_area))[0];
-	if ( $uid eq 0 ) {
-		logit "Random user home directory $var_area is owned by root!? Exiting...";
-		print "Random user home directory $var_area is owned by root!? Exiting...\n";
-		exit;
-	}
-	my $randuser = (getpwuid($uid))[0];
-	print "Trying as user $randuser\n"; 
-	logit "Trying as user $randuser\n"; 
-	my $passargs="";
-	if ( $#ARGV eq 0 and $ARGV[0] eq "--config") { $passargs="--config"; }
-	exec("su - \"$randuser\" -c \"".abs_path($0)." $passargs\"");
-	exit;
-}
-
-#check folder for permissions
-if ( not -d $var_area ) {
-	logit "Database directory does not exists";
-	print "Database directory does not exists\n";
-	exit;
-}
-if ( not -w $var_area ) {
-	logit "Database directory is not writable";
-	print "Database directory is not writable\n";
-	exit;
-}
-my $mode = sprintf "%04o", ((stat($var_area))[2] & 07777);
-if ( $mode ne "0700" ) {
-	logit "Database directory permissions are incorrect (".$mode.")";
-	print "Database directory permissions are incorrect (".$mode.")\n";
-	exit;
-}
-
-if ( not -d $plugin_dir ) {
-	logit "Plugin directory does not exist or is inaccessable";
-	print "Plugin directory does not exist or is inaccessable";
-	exit;
-}
-
-# configure
-if ( $#ARGV eq 0 and $ARGV[0] eq "--config") {
-	if ( not opendir(DIR,$plugin_dir) ) {
-		logit "Could not open $plugin_dir: $!";
-		exit;
-	}
-	my @plugins=grep( /!^./, readdir(DIR));
-	closedir(DIR);
-	for my $plugin (@plugins) {
-		my $plugin_run=$plugin_dir . "/" . $plugin . "/" . "run";
-		if ( -x $plugin_run ) {
-			system($plugin_run." --config");
-		}
-	}
-	exit;
-}
-
-# set priority
-setpriority(0, 0, 2);
-
-# wait for machine (some generators need time to startup)
-sleep 15 * 60;
-
-my $dir = getcwd;
-$ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
 
 # download or obtain data
 # args: <source> <destination> <amount in kb> [username] [password]
@@ -107,106 +49,79 @@ sub get_data {
 	my $src = shift;
 	my $dest = shift;
 	my $amount = shift;
+	my $amount_bytes = $amount * 1024 * 1024;
 	my $testfile=$dest.".test";
 	my ($x,$buf);
-	$amount *= 1024 * 1024;
-	if ( $src =~ m/^http/ ) {
-		#download from remote location to $dest.tmp file
-		logit("Web not done yet - no sites for it");
-		return 1;
-#		#set $src to $dest.tmp
-#		$src = $dest . ".tmp"
-	}
-	elsif ( -C $src) {
-		# get data from device
-		#$amount = $amount * 18 (old: in chunks of 57 bits, in MB);
-		$amount /= 1024;
-		if ( not open(SAVE, ">".$dest) ) {
-			logit("Could not open destination($!): $dest");
-			return 1;
-		}
-		chmod 0600, $dest;
-		if ( not open(FILE, $src) ) {
-			logit("Could not open source($!): $src");
-			close(SAVE);
-			unlink $dest;
-			return 2
-		}
-		for ($x=1; $x <= $amount ; $x++) {
-			read(FILE, $buf, 1024);
-			print SAVE $buf;
-		}
-		close(SAVE);
-		close(FILE);
-	}
-	else {
-		my $fullpath="";
-		my @paths = split (/:/ , $ENV{PATH});
-		foreach my $path ( @paths ) {
-			if ( -x $path . "/" . $src ) {
-				$fullpath=$path . "/" . $src;
-				last;
+	my $src_path=$plugin_dir . "/" . $src . "/run";
+	if ( -x $src_path ) {
+		# run it with --get xx arg
+		chdir($plugin_dir . "/" . $src);
+		system("\"$src_path\" --get $amount > \"$dest\" &");
+		
+		# watch it
+		my @pid = `pgrep -f "$src_path --get $amount"`;
+		if ( @pid and $#pid >= 0) {
+			chomp @pid;
+			# allow for a 10 kb/s connection
+			my $timeout = $amount_bytes / 10;
+			while ( (kill 0, $pid[0]) > 0 and $timeout > 0 ) {
+				sleep 10;
+				$timeout -= 10;
 			}
-		}
-		if ( $fullpath ne "" ) {
-			if ( open(TOUCH, ">$dest") ) {
-			  print TOUCH "";
-			  close(TOUCH);
+			# if it is still running, them stop it
+			if ( (kill 0, $pid[0]) > 0 ) {
+				logit("Had to kill $src (pid ".(kill 15, $pid[0]).")");
 			}
-			chmod 0600, $dest;
-			# must be a program
-			#chdir(dirname($src));
-			system($fullpath . " " . $amount . " > " . $dest . "&");
-			my @pid = `pgrep $src`;
-			if ( @pid and $#pid >= 0) {
-				chomp @pid;
-				# allow for a 20 kb/s connection
-				my $timeout = $amount / 20;
-				while ( (kill 0, @pid) > 0 and $timeout > 0 ) {
-					sleep 10;
-					$timeout -= 10;
-				}
-				# if it is still running, them stop it
-				if ( (kill 0, @pid) > 0 ) {
-					logit("Had to kill $src (".(kill 15, @pid)." processes)");
-				}
-			}
-			else {
-				logit("Unable to get pid for $src. Will wait 20 mins for good measure.");
-				sleep(20 * 60);
-			}
-			if ( (stat($dest))[7] ne $amount ) {
-				logit("Failed to run/finish " . $fullpath . " " . $amount . " > " . $dest);
-				logit("Ouput was ".((stat($dest))[7])." ne $amount");
-				# did we get at least 10% of waht we wanted?
-				if ( (stat($dest))[7] < (0.10 * $amount) ) {
-					# not enough
-					logit("And we did not get enough data");
-					unlink($dest);
-					return 5;
-				}
-				# otherwise just log it and continue
-				logit("But will continue because we got enough (".(stat($dest))[7]." bytes)");
-			}
-			#chdir(dirname(abs_path($0)));
 		}
 		else {
-			# not supported
-			logit "Entry \"$src\" is of a type that is not supported";
-			print "Entry \"$src\" is of a type that is not supported.\n";
-			return 8;
+			logit("Unable to get pid for $src. Will wait 40 mins for good measure.");
+			sleep(20 * 60);
+		}
+		
+		# verify it actually did something
+		if ( (stat($dest))[7] ne $amount_bytes ) {
+			logit("Failed to run/finish " . $src . " " . 
+				$amount_bytes . " > " . $dest);
+			logit("Ouput was ".((stat($dest))[7])." != $amount");
+			# did we get at least 10% of waht we wanted?
+			if ( (stat($dest))[7] < (0.10 * $amount_bytes) ) {
+				# not enough
+				logit("And we did not get enough data");
+				unlink($dest);
+				return 5;
+			}
+			# otherwise just log it and continue
+			logit("But will continue because we got enough (".(stat($dest))[7]." bytes)");
 		}
 	}
-	# test for randomness
+	else {
+		# not supported
+		logit "Plugin \"$src\" was not found in the plugin dir $plugin_dir";
+		return 8;
+	}
+	
+	# we will filter through rngtest to test for randomness, if available
 	if ( open(TOUCH, ">$testfile") ) {
 	  print TOUCH "";
 	  close(TOUCH);
 	}
 	chmod 0600, $testfile;
-	system("cat \"$dest\" | rngtest -p > \"$testfile\" 2>/dev/null");
+	my $rngtest="none";
+	foreach my $path ( split(/:/, $ENV{PATH} ) ) {
+		if ( -x $path . "/rngtest" ) {
+			$rngtest=$path . "/rngtest";
+		}
+	}
+	if ( -x $rngtest ) {
+		system("\"$rngtest\" -p < \"$dest\" > \"$testfile\" 2>/dev/null");
+	}
+	else {
+		$testfile=$dest;
+	}
+	
 	# format to base64, reading parts at a time to keep memory down
 	if ( -s $testfile eq 0 ) {
-		logit("Output of $dest was empty (after test)");
+		logit("Output of $dest was empty (rngtest: $rngtest)");
 		unlink $dest;
 		unlink $testfile;
 		return 4;
@@ -232,11 +147,25 @@ sub get_data {
 }
 
 
-
-
 sub random_sort {
 	my $database_name = shift;
-	my @files = @_;
+	my $folder=shift;
+	
+	# file list
+	if ( not opendir(DIR, $folder) ) {
+		logit "Failed to open temp folder for reading: $!";
+		return 5;
+	}
+	my @files_short = grep( !/^\.{1,2}$/, readdir(DIR));
+	closedir(DIR);
+	
+	# full paths
+	my @files = ();
+	foreach my $file (@files_short) {
+		push @files, $folder."/".$file;
+	}
+	
+	# open files in a hash
 	my $f=0;
 	my @fh=();
 	foreach my $file (@files) {
@@ -248,7 +177,7 @@ sub random_sort {
 		}
 	}
 	
-	# open database and lock it
+	# open temp database
 	my $database_tmp=$database_name."tmp";
 	if ( not open (DATATMP , ">".$database_tmp) ) {
 		logit("Exiting because could not clear tmp database: $!");
@@ -334,51 +263,156 @@ sub random_sort {
 	}
 }
 
-my ($r,$format_buf);
 
-# source
-while (1) {
-		
-	# wait if we already have enough random data stocked up
-	if ( -f $database ) {
-		while ( (stat($database))[7] > 300 * 1048576 ) {
-			sleep(60);
+# plugin list
+sub get_plugins {
+	# plugin dir listing
+	if ( not opendir(DIR,$plugin_dir) ) {
+		logit "Could not open $plugin_dir: $!";
+		return qw(size => 0);
+	}
+	my @p=grep( !/^\.{1,2}$/, readdir(DIR));
+	closedir(DIR);
+	
+	# read config
+	open ( CONF , $conf ) || error("Failed to open config");
+	my @conf_file=<CONF>;
+	close(CONF);
+	my %conf_h;
+	$conf_h{size}=300;
+	foreach my $c (@conf_file) {
+		if ( not $c =~ /^\s*#/ ) {
+			# size
+			$c =~ s/size\s*=\s*(\d+)/$conf_h{size}=$1/e;
+			# plugins
+			$c =~ s/(.+)\s*=\s*(\d+)/$conf_h{$1}=$2/e;
 		}
 	}
 	
-	# hrandom0 or frandom
-	my $calc_rnd0 = "/dev/hrandom0";
-	my $calc_rnd1 = "/dev/hrandom1";
-	if ( not -e $calc_rnd0 ) {
-		logit "hrandom is not installed - reverting to frandom";
-		$calc_rnd0 = "/dev/frandom";
-		$calc_rnd1 = "/dev/erandom";
+	return %conf_h;
+}
+
+
+# check that we are running as owner of script   [ getlogin() is LAME ]
+if ( not -w abs_path($0) ) {
+	error "Needs to run as user who owns file";
+}
+# check that we are running as non-root
+if ( -w "/" ) {
+	print "Cannot run as root!\n";
+#	print "Cannot run as root! Attempting to drop privleges\n";
+#	# try to drop privleges
+#	my $uid=(stat($var_area))[0];
+#	if ( $uid eq 0 ) {
+#		error "Random user home directory $var_area is owned by root!? Exiting...";
+#	}
+#	my $randuser = getpwuid($uid);
+#	logit "Trying as user $randuser ($uid)"; 
+#	my $passargs="";
+#	if ( $#ARGV eq 0 and $ARGV[0] eq "--config") { $passargs="--config"; }
+#	exec("su - \"$randuser\" -c \"".abs_path($0)." $passargs\"");
+	exit;
+}
+
+
+# vars
+my $var_area_tmp = $var_area . "/tmp";
+my ($r,$format_buf);
+my %plugins = ();
+
+
+#check folder for permissions
+if ( not -d $var_area ) {
+	error "Database directory $var_area does not exists";
+}
+if ( not -w $var_area ) {
+	error "Database directory $var_area is not writable";
+}
+my $mode = sprintf "%04o", ((stat($var_area))[2] & 07777);
+if ( $mode ne "0700" ) {
+	error "Database directory $var_area permissions are incorrect (".$mode.")";
+}
+if ( not -d $plugin_dir ) {
+	error "Plugin directory $plugin_dir does not exist or is inaccessable";
+}
+
+
+# make dirs and test plugin dir
+mkdir $var_area_tmp || error "Unable to create temp folder $var_area_tmp";
+%plugins=get_plugins();
+if ( %plugins eq 0 ) {
+	error("THERE ARE NO PLUGINS INSTALLED: EXITING....");
+}
+
+
+# configure
+if ( $#ARGV eq 0 and $ARGV[0] eq "--config") {
+	if ( not opendir(DIR,$plugin_dir) ) {
+		print "Could not open $plugin_dir: $!";
+		exit;
+	}
+	my @config_plugins=grep( !/^\.{1,2}$/, readdir(DIR));
+	closedir(DIR);
+	for my $plugin (@config_plugins) {
+		my $plugin_run=$plugin_dir . "/" . $plugin . "/" . "run";
+		if ( -x $plugin_run ) {
+			system($plugin_run." --config");
+		}
+	}
+	exit;
+}
+
+
+# set higher priority
+setpriority(0, 0, 2);
+
+
+# wait x mins after machine startup (some generators need time to startup)
+my $wait = 15 * 60;
+if ( open( UPTIME, "/proc/uptime" ) ) {
+	my $uptime = ( split (/ /, (<UPTIME>)[0]) )[1];
+	close(UPTIME);
+	if ( $uptime < $wait ) {
+		sleep $wait - $uptime;
+	}
+}
+else {
+	# not linux
+	sleep $wait;
+}
+
+
+# main
+while (1) {
+	
+	# plugins
+	%plugins=get_plugins();
+	if ( %plugins eq 0 ) {
+		logit "No plugins found";
+		sleep 24 * 3600;
+		next;
 	}
 	
+	# wait if we already have enough random data stocked up
+	if ( -f $database ) {
+		while ( (stat($database))[7] > $plugins{size} * 1048576 ) {
+			sleep(300); # 5 mins
+		}
+	}
+	
+	# process plugins 
 	logit("Getting random data");
+	foreach my $plugin (keys %plugins) {
+		if ( $plugin ne 'size' ) {
+			get_data($plugin, $var_area_tmp."/".$plugin , $plugins{$plugin});
+		}
+	}
 	
-	# should total 300 mb (each is in mb)
-	
-	get_data($calc_rnd0,		$var_area."/file1",	50);
-	get_data("qrand.sh",		$var_area."/file2",	70);
-	get_data($calc_rnd1,		$var_area."/file3",	50);
-	
-	get_data($calc_rnd0,		$var_area."/file4",	50);
-	get_data("qrand.sh",		$var_area."/file5",	70);
-	get_data($calc_rnd1,		$var_area."/file6",	50);
-	
-	#get_data("MersenneTwister",	$var_area."/file8",	 50);
-	
-	# randomly sort data into database
-	random_sort($database, $var_area."/file1", $var_area."/file2", $var_area."/file3"
-		,$var_area."/file4", $var_area."/file5", $var_area."/file6");
-	
+	# randomize files
+	random_sort($database, $var_area_tmp);
 	logit("Finished getting random data");
 	
 	# At most get data once an hour - more means trouble
 	sleep(3600);
 	
-	#cut up into various chunks, and randowly sort
-	
 }
-

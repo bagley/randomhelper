@@ -11,7 +11,14 @@
 #
 # make modules
 
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PREFIX/bin:$PREFIX/sbin
+# random-collector *should* under its user privlges
+# but you can set this to root, if you so desire (security risk)
+RANDUSER=randomhelper
+
+PREFIXPATH=/usr/local
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PREFIXPATH/bin:$PREFIXPATH/sbin
+
 DESC=randomhelper
 
 . /lib/lsb/init-functions
@@ -22,18 +29,29 @@ start_rand() {
 	
 	if [ -n "$(pgrep -f 'random-add')" ] \
 	 || [ -n "$(pgrep -f 'random-collector')" ] ; then
+	 
 	  echo "Random get and/or collector already running"
+	  
 	else
-	  # random-collector must run under its user privlges
-	  # use the following lines if su doesnt work. Just change
-	  # 'su - $RANDUSER -c' to 'su - -c'
 	  
-	  #chown "$RANDUSER:$RANDSER" $PREFIX/sbin/random-collector
-	  #chmod 4700 $PREFIX/sbin/random-collector
+	  # random add
+	   su - -c "perl random-add &" >/dev/null 2>/dev/null&
 	  
-	  su - $RANDUSER -c "perl random-collector &" >/dev/null 2>/dev/null&
+	  # random collector
+	  if [ -n "$RANDUSER" ] ; then
+	    
+	    # user
+	    mkdir -p /var/lib/randomhelper
+	    chown "$RANDUSER:$RANDUSER" -R /var/lib/randomhelper
+	    su - "$RANDUSER" -c "perl random-collector &" >/dev/null 2>/dev/null&
+	    
+	  else
+	    
+	    # root
+	    su - -c "perl random-collector &" >/dev/null 2>/dev/null&
+	    
+	  fi
 	  
-	  su - -c "perl random-add &" >/dev/null 2>/dev/null&
 	fi
 	
 }

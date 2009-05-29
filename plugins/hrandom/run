@@ -32,7 +32,7 @@ case $1 in
 		;;
 		
 	--get) 
-		[ -z "$2" ] || exit 1
+		[ -n "$2" ] || exit 1
 		#if [ -x $math ] ; then  # removed until futher testing on second device
 		#  amount=$($math $2 \* 1024)
 		#  main=$($math $amount \/ 4 \* 3)

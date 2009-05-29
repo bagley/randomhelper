@@ -145,7 +145,7 @@ if [ -z "$plugins" ] ; then
   plugins="No plugins found. You may still install, but without 
             any plugins, this program is useless."
 else
-  echo "plugins=$plugins" >> "$installdir/config.status"
+  echo "plugins=\"$plugins\"" >> "$installdir/config.status"
 fi
 
 # check user
@@ -179,7 +179,7 @@ echo -n "Outputing files ... "
 cd "$installdir"
 rm -f random-collector.sed random-add.sed
 cp random-collector random-collector.sed
-sed -i.bak -e"s|{PREFIX}|$PREFIX|g" random-collector.sed
+sed -i.bak -e"s|/usr/local/share/randomhelper/plugins|$PREFIX/share/randomhelper/plugins|g" random-collector.sed
 cp random-add random-add.sed
 sed -i.bak -e"s|my \$RNDADDENTROPY=0x40085203;|my \$RNDADDENTROPY=$RNGADDRESS;|"\
    random-add.sed
@@ -188,7 +188,8 @@ rm -f random-collector.sed.bak random-add.sed.bak
 cd "$installdir/initd"
 rm -f randomhelper.sed
 cp randomhelper randomhelper.sed
-sed -i.bak -e"s|\$PREFIX|$PREFIX|g" -e"s|\$RANDUSER|$RANDUSER|g" randomhelper.sed
+sed -i.bak -e"s|PREFIXPATH=/usr/local|PREFIXPATH=$PREFIX|g" \
+	-e"s|RANDUSER=randomhelper|RANDUSER=$RANDUSER|g" randomhelper.sed
 rm -f randomhelper.sed.bak
 echo "OK"
 
