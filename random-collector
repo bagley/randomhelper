@@ -28,6 +28,8 @@ my $conf = "/etc/randomhelper";
 
 #######################################
 
+my $factor;
+
 # log info
 sub logit {
 	my $msg = shift;
@@ -43,8 +45,7 @@ sub error {
 	exit 1;
 }
 
-# download or obtain data
-# args: <source> <destination> <amount in kb> [username] [password]
+# obtain data
 sub get_data {
 	my $src = shift;
 	my $dest = shift;
@@ -52,30 +53,35 @@ sub get_data {
 	my $amount_bytes = $amount * 1024 * 1024;
 	my $testfile=$dest.".test";
 	my ($x,$buf);
+	logit "Getting $amount mb from $src";
 	my $src_path=$plugin_dir . "/" . $src . "/run";
 	if ( -x $src_path ) {
 		# run it with --get xx arg
 		chdir($plugin_dir . "/" . $src);
-		system("\"$src_path\" --get $amount > \"$dest\" &");
+		system("\"$src_path\" --get $amount > \"$dest\" 2>/dev/null &");
 		
 		# watch it
+		my $timeout = $amount * 2 * 6;
 		my @pid = `pgrep -f "$src_path --get $amount"`;
 		if ( @pid and $#pid >= 0) {
 			chomp @pid;
-			# allow for a 10 kb/s connection
-			my $timeout = $amount_bytes / 10;
+			# allow for a 10 kb/s program/connection
 			while ( (kill 0, $pid[0]) > 0 and $timeout > 0 ) {
 				sleep 10;
-				$timeout -= 10;
+				$timeout -= 1;
 			}
-			# if it is still running, them stop it
+			# if it is still running, then stop it
 			if ( (kill 0, $pid[0]) > 0 ) {
 				logit("Had to kill $src (pid ".(kill 15, $pid[0]).")");
 			}
 		}
 		else {
-			logit("Unable to get pid for $src. Will wait 40 mins for good measure.");
-			sleep(20 * 60);
+			logit("Unable to get pid for $src. Will wait ".
+				($timeout / 6)." mins for good measure.");
+			while ( $timeout > 0 ) {
+				sleep 10;
+				$timeout -= 1;
+			}
 		}
 		
 		# verify it actually did something
@@ -153,7 +159,7 @@ sub random_sort {
 	
 	# file list
 	if ( not opendir(DIR, $folder) ) {
-		logit "Failed to open temp folder for reading: $!";
+		logit "Failed to open temp folder $folder for reading: $!";
 		return 5;
 	}
 	my @files_short = grep( !/^\.{1,2}$/, readdir(DIR));
@@ -165,16 +171,33 @@ sub random_sort {
 		push @files, $folder."/".$file;
 	}
 	
-	# open files in a hash
+	# determine total file sizes , for size of chunks when we mix files
+	my $total_size=0;
+	my $size;
+	foreach my $file (@files) {
+		$size = (stat($file))[7];
+		$total_size += $size;
+	}
+	my %file_weight=();
+	
+	# open files in an array
 	my $f=0;
 	my @fh=();
 	foreach my $file (@files) {
-		if ( -f $file ) {
-			if ( not open($fh[$f],$file) ) {
-				logit ("Could not open $file: $!");
+		if ( -f $file and open($fh[$f],$file) ) {
+			# determine how large the chunks will be when we mix files
+			$size = (stat($file))[7];
+			$file_weight{$fh[$f]}=int($size / $total_size * 20);
+			if ( $file_weight{$fh[$f]} < 3 ) {
+				$file_weight{$fh[$f]}=3;
 			}
-			$f++;
+			#print $size." -/- ".$total_size."\n";
+			#print "Weght for $file: ".$file_weight{$fh[$f]} . "\n";
 		}
+		else {
+			logit ("Could not open $file: $!");
+		}
+		$f++;
 	}
 	
 	# open temp database
@@ -201,8 +224,9 @@ sub random_sort {
 			$added=0;
 			foreach my $fileh (@fh) {
 				if ( defined($fileh) ) {
-					# how many lines from this file?
-					$rand_each=1 + int(rand 3);
+					# how many lines from this file? By file size (above)
+					$rand_each = 1 + int(rand $file_weight{$fileh});
+					# print $rand_each . "-";
 					for ($t=1; $t <= $rand_each ; $t++) {
 						$line = <$fileh>;
 						if ( defined($line) ) {
@@ -273,6 +297,10 @@ sub get_plugins {
 	}
 	my @p=grep( !/^\.{1,2}$/, readdir(DIR));
 	closedir(DIR);
+	my %plugs=();
+	foreach my $plug (@p) {
+		$plugs{$plug}=1;
+	} 
 	
 	# read config
 	open ( CONF , $conf ) || error("Failed to open config");
@@ -287,6 +315,44 @@ sub get_plugins {
 			# plugins
 			$c =~ s/(.+)\s*=\s*(\d+)/$conf_h{$1}=$2/e;
 		}
+	}
+	
+	# add found plugins not in config file, with default of 5
+	foreach my $plug (keys %plugs) {
+		if ( not exists $conf_h{$plug} ) {
+			$conf_h{$plug}=5;
+		}
+	}
+	# remove nonexistant plugins and check values
+	foreach my $c (keys %conf_h) {
+	  if ( $c ne "size" ) {
+		if ( not exists $plugs{$c} ) {
+			delete $conf_h{$c};
+			logit "Error: Plugin entry $c is in config file, but there is no folder for it";
+		}
+		if ( not $conf_h{$c} gt 0 and not $conf_h{$c} le 10 ) {
+			logit "Plugin $c had an incorrect value amount and was reset to 5";
+			$conf_h{$c}=5;
+		}
+	  }
+	}
+	
+	# determine total amounts for each plugin
+	$factor=0;
+	foreach my $c (keys %conf_h) {
+	  if ( $c ne "size" ) {
+		# get multiplication factor
+		$factor += $conf_h{$c};
+	  }
+	}
+	$factor=$conf_h{size} / $factor; # determine factor
+	# print $factor . "\n";
+	foreach my $c (keys %conf_h) {
+	  if ( $c ne "size" ) {
+		# apply multiplication factor
+		$conf_h{$c} = int( $conf_h{$c} * $factor );
+		# print "$c = $conf_h{$c}\n";
+	  }
 	}
 	
 	return %conf_h;
@@ -402,13 +468,26 @@ while (1) {
 	
 	# process plugins 
 	logit("Getting random data");
+	
+	# two passes, to mix things up
+	
+	# first pass
 	foreach my $plugin (keys %plugins) {
 		if ( $plugin ne 'size' ) {
-			get_data($plugin, $var_area_tmp."/".$plugin , $plugins{$plugin});
+			get_data($plugin, $var_area_tmp."/".$plugin."-1", 
+				int($plugins{$plugin} / 2) );
+		}
+	}
+	# second pass
+	foreach my $plugin (keys %plugins) {
+		if ( $plugin ne 'size' ) {
+			get_data($plugin, $var_area_tmp."/".$plugin."-2", 
+				int($plugins{$plugin} / 2) );
 		}
 	}
 	
 	# randomize files
+	logit("Putting data into database");
 	random_sort($database, $var_area_tmp);
 	logit("Finished getting random data");
 	

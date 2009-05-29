@@ -111,7 +111,7 @@ for EACH in $plugins ; do
   set -x
   #install -d -o "$RANDUSER" -g "$RANDUSER" "$installdir/plugins/$EACH" \
   #  "$PREFIX/share/randomhelper/plugins/$EACH"
-  cp -pr "$installdir/plugins/$EACH" "$PREFIX/share/randomhelper/plugins/"
+  cp -pr --force "$installdir/plugins/$EACH" "$PREFIX/share/randomhelper/plugins/"
   chown "$RANDUSER:$RANDUSER" -R "$PREFIX/share/randomhelper/plugins/$EACH"
   set +x
   priority=5

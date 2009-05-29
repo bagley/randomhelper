@@ -3,9 +3,7 @@ Program to add entropy to linux kernel using (hopefully) secure sources. The sou
 
 WARNING
 
-As a word of warning, I made this program for my personal use with headless 
-servers. Remote connections by way of ssh or ssl take a lot of entropy to run.
-So I made this program to get entropy from several secure sources, mix the data obtained, and then add it to the kernel enrophy pool (/dev/random). 
+As a word of warning, I made this program for my personal use with headless servers. Remote connections by way of ssh or ssl take a lot of entropy to run. So I made this program to get entropy from several secure sources, mix the data obtained, and then add it to the kernel enrophy pool (/dev/random). 
 
 Of course, if the random number generator sources are not secure, then generated gpg keys will be insecure, ssh and ssl connections will be breakable, and a lot of other issues and insecurities will present themselves. It is the user's responsibility (your's) to verify the integrity of the sources and the integrity of this program's input to the random device using the various tools available for random number testing.
 
