@@ -104,6 +104,8 @@ set +x
 
 # set priorities
 echo "size=300" > "/etc/randomhelper"
+chmod 640 "/etc/randomhelper"
+chown "root:$RANDUSER" "/etc/randomhelper"
 
 # plugins
 cd "$installdir/plugins"

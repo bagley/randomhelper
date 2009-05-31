@@ -6,12 +6,11 @@ use strict;
 
 use Fcntl qw(:DEFAULT :flock);
 
-use MIME::Base64 qw(encode_base64);
-
 use Cwd;
 use Cwd qw(abs_path);
 use Sys::Syslog;
 use File::Basename;
+use File::Copy;
 
 #######################################
 
@@ -61,18 +60,28 @@ sub get_data {
 		system("\"$src_path\" --get $amount > \"$dest\" 2>/dev/null &");
 		
 		# watch it
-		my $timeout = $amount * 2 * 6;
-		my @pid = `pgrep -f "$src_path --get $amount"`;
-		if ( @pid and $#pid >= 0) {
-			chomp @pid;
+		my $timeout = $amount * 6;
+		my $pid;
+		my $t = 5;
+		while ( ( not defined($pid) or $pid eq "") and $t > 0 ) {
+			$pid=(`pgrep -f "/bin/sh $src_path --get $amount"`)[0];
+			chomp $pid if ( defined($pid) );
+			if ( not defined($pid) or $pid eq "" ) {
+				$pid = (`pgrep "$src_path"`)[0];
+			}
+			chomp $pid if ( defined($pid) );
+			$t -= 1;
+			sleep 1;
+		}
+		if ( defined($pid) and $pid ne "") {
 			# allow for a 10 kb/s program/connection
-			while ( (kill 0, $pid[0]) > 0 and $timeout > 0 ) {
+			while ( (kill 0, $pid) > 0 and $timeout > 0 ) {
 				sleep 10;
 				$timeout -= 1;
 			}
 			# if it is still running, then stop it
-			if ( (kill 0, $pid[0]) > 0 ) {
-				logit("Had to kill $src (pid ".(kill 15, $pid[0]).")");
+			if ( (kill 0, $pid) > 0 ) {
+				logit("Had to kill $src (pid ".(kill 15, $pid).")");
 			}
 		}
 		else {
@@ -120,35 +129,16 @@ sub get_data {
 	}
 	if ( -x $rngtest ) {
 		system("\"$rngtest\" -p < \"$dest\" > \"$testfile\" 2>/dev/null");
-	}
-	else {
-		$testfile=$dest;
+		if ( -s $testfile eq 0 ) {
+			logit("Check of $dest was empty (rngtest: $rngtest)");
+			unlink $dest;
+			unlink $testfile;
+			return 4;
+		}
+		unlink($dest);
+		move($testfile, $dest);
 	}
 	
-	# format to base64, reading parts at a time to keep memory down
-	if ( -s $testfile eq 0 ) {
-		logit("Output of $dest was empty (rngtest: $rngtest)");
-		unlink $dest;
-		unlink $testfile;
-		return 4;
-	}
-	if ( not open(SAVE,">" . $dest) ) {
-		logit ("Could not open destination($!): $dest");
-		return 1;
-	}
-	if ( not open(FILE, $testfile) ) {
-		logit("Could not open source($!): $src");
-		close(SAVE);
-		unlink $dest;
-		return 2
-	}
-	# read in 57 ata time, so base64 will be okay
-	while (	read(FILE, $buf, 57) eq 57 ) {
-		print SAVE encode_base64($buf);
-	}
-	close(SAVE);
-	close(FILE);
-	unlink $testfile;
 	return 0;
 }
 
@@ -187,12 +177,13 @@ sub random_sort {
 		if ( -f $file and open($fh[$f],$file) ) {
 			# determine how large the chunks will be when we mix files
 			$size = (stat($file))[7];
-			$file_weight{$fh[$f]}=int($size / $total_size * 20);
-			if ( $file_weight{$fh[$f]} < 3 ) {
-				$file_weight{$fh[$f]}=3;
+			$file_weight{$fh[$f]}=int($size / $total_size * 200);
+			if ( $file_weight{$fh[$f]} < 10 ) {
+				$file_weight{$fh[$f]}=10;
 			}
 			#print $size." -/- ".$total_size."\n";
 			#print "Weght for $file: ".$file_weight{$fh[$f]} . "\n";
+			#binmode($fh[$f]) || print "Failed to open in binmode $file: $!\n";
 		}
 		else {
 			logit ("Could not open $file: $!");
@@ -212,40 +203,38 @@ sub random_sort {
 		logit("Exiting because could not open tmp database: $!");
 		exit;
 	}
+	#binmode(DATATMP) || print "Failed to open database in binmode $database_tmp: $!\n";
 	
 	# vars
 	my $added=1;
-	my ($line, $rand_each, $t, $key);
-	my $full_line="";
-	my $rand_lines=int( 2 + rand 6 );
-	my $added_lines=0;
+	my ($rand_amount, $buffer_s,);
+	my $buffer_rand = "";
 	
-		while ($added eq 1) {
-			$added=0;
-			foreach my $fileh (@fh) {
-				if ( defined($fileh) ) {
-					# how many lines from this file? By file size (above)
-					$rand_each = 1 + int(rand $file_weight{$fileh});
-					# print $rand_each . "-";
-					for ($t=1; $t <= $rand_each ; $t++) {
-						$line = <$fileh>;
-						if ( defined($line) ) {
-							chomp($line);
-							$full_line .= $line;
-							$added=1; # if any of the files have anything left
-							$added_lines++;
-							# print when we have our lines
-							if ($added_lines ge $rand_lines ) {
-								print DATATMP $full_line . "\n";
-								$rand_lines=int( 2 + rand 6 );
-								$added_lines=0;
-								$full_line = "";
-							}
-						}
-					}
+	while ($added eq 1) {
+		$added=0;
+		foreach my $fileh (@fh) {
+			if ( not defined($fileh) ) {
+				next;
+			}
+			# how many lines from this file? By file size (above)
+			$rand_amount = $file_weight{$fileh} + int(rand $file_weight{$fileh});
+			# print $rand_each . "-";
+			read($fileh, $buffer_s, $rand_amount);
+			if ( defined($buffer_s) and $buffer_s ne "" ) {
+				$buffer_rand .= $buffer_s;
+				$added=1;
+				if ( length($buffer_rand) > 1000000 ) { # print buffer
+					print DATATMP $buffer_rand;
+					$buffer_rand = "";
 				}
 			}
 		}
+	}
+	# print anything left
+	if ( length($buffer_rand) > 0 ) {
+		print DATATMP $buffer_rand;
+		$buffer_rand = "";
+	}
 	# close and remove files
 	$f=0;
 	foreach my $file (@files) {
@@ -263,26 +252,29 @@ sub random_sort {
 			logit("Exiting because could not open database for copy:$!");
 			exit;
 		}
+		logit "Locked database";
+		#binmode(DATABASE) || print "Failed to open database in binmode $database_name: $!\n";
 		flock( DATABASE , LOCK_EX);
 		chmod 0600, $database_name;
 		# copy old databse to new one (we are adding new ones to top for random-get's speed)
-		while ($data_line = <DATABASE>) {
-			print DATATMP $data_line;
+		while( read(DATABASE, $buffer_s, 1000000) ) {
+			print DATATMP $buffer_s;
 		}
 		# write it back
 		seek(DATATMP,0,0); #rewind tmp
 		seek(DATABASE,0,0); #rewind
 		truncate(DATABASE,0); #clear file
-		while ($data_line = <DATATMP>) {
-			print DATABASE $data_line;
+		while( read(DATATMP, $buffer_s, 1000000) ) {
+			print DATABASE $buffer_s;
 		}
 		close(DATABASE);
 		close(DATATMP);
 		unlink $database_tmp;
+		logit "Unlocked database";
 	}
 	else {
 		# first run
-		rename $database_tmp, $database_name;
+		move($database_tmp, $database_name);
 		chmod 0600, $database_name;
 	}
 }
@@ -346,12 +338,12 @@ sub get_plugins {
 	  }
 	}
 	$factor=$conf_h{size} / $factor; # determine factor
-	# print $factor . "\n";
+	#print $factor . "\n";
 	foreach my $c (keys %conf_h) {
 	  if ( $c ne "size" ) {
 		# apply multiplication factor
 		$conf_h{$c} = int( $conf_h{$c} * $factor );
-		# print "$c = $conf_h{$c}\n";
+		#print "$c = $conf_h{$c}\n";
 	  }
 	}
 	
@@ -447,6 +439,7 @@ else {
 	sleep $wait;
 }
 
+logit "Starting";
 
 # main
 while (1) {
@@ -455,14 +448,15 @@ while (1) {
 	%plugins=get_plugins();
 	if ( %plugins eq 0 ) {
 		logit "No plugins found";
-		sleep 24 * 3600;
+		sleep 24 * 3600; # 1 day
 		next;
 	}
 	
 	# wait if we already have enough random data stocked up
+	# we let it drop to half the size before filling up again
 	if ( -f $database ) {
-		while ( (stat($database))[7] > $plugins{size} * 1048576 ) {
-			sleep(300); # 5 mins
+		while ( (stat($database))[7] > $plugins{size} * 1048576 / 2 ) {
+			sleep(3600); # 1 hour
 		}
 	}
 	
@@ -491,7 +485,7 @@ while (1) {
 	random_sort($database, $var_area_tmp);
 	logit("Finished getting random data");
 	
-	# At most get data once an hour - more means trouble
-	sleep(3600);
+	# At most get data twice a day - more means trouble
+	sleep(12 * 3600); # 12 hours
 	
 }

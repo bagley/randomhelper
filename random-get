@@ -16,19 +16,27 @@ use Time::HiRes qw( usleep );
 
 use Fcntl qw(:DEFAULT :flock);
 
-use MIME::Base64 qw(decode_base64);
-
 use Date::Format;
 
 $ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin";
 
-# lowest level allowed for random pool (2000 - 4096)
-my $min_level=3500;
+# Lowest level allowed for random pool (1000 - 3000). Higher not recommended.
+my $min_level=2000;
 
 # database
-my $var_area = "/var/lib/randomdata";
+my $var_area = "/var/lib/randomhelper";
 my $database = $var_area . "/database";
 my $stats_file = "/var/run/random-add.pid";
+
+# buffer, in bytes. It will grow to be twice this size.
+my $buffer = 250000;
+
+# size of data added to rand device
+my $added_min=48;
+my $added_max=256;
+
+# debug
+my $debug=1;
 
 # set priority
 setpriority(0, 0, -1);
@@ -82,6 +90,13 @@ sub logit {
 	openlog("random-add", 'cons,pid', 'user');
 	syslog('notice', $msg);
 	closelog();
+	print $msg . "\n";
+}
+
+sub error {
+	my $msg = shift;
+	logit($msg);
+	exit 1;
 }
 
 # data structure for random pool adding
@@ -93,25 +108,66 @@ sub logit {
 
 # wait for database if it isnt there already
 if ( not -f $database ) {
-	print "Database file does not exist. Waiting...";
+	logit "Database file does not exist. Waiting...";
 }
 while ( not -f $database ) {
 	sleep(20);
-	print ".";
+	#print ".";
 }
 
 ### dont use sqlite as it drains the entropy ###
 
 sub entrophy_level {
 	my $levl;
-	open(LEVEL,"/proc/sys/kernel/random/entropy_avail") or die "Could not open entrophy_level: $!\n";
+	open(LEVEL,"/proc/sys/kernel/random/entropy_avail") or error "Could not open entrophy_level: $!\n";
 	$levl = <LEVEL>;
 	close(LEVEL);
 	chomp($levl);
 	return $levl;
 }
 
-open(RD, ">>/dev/random") or die "Unable to open random device for writing: $!";
+# add data to enc buffer ref, if below buffer amount
+# <string ref> <database file> <buffer amount>
+sub get_enc_data {
+	my ($buffer_ref, $buffer_amount, $db)=@_;
+	if ( length($$buffer_ref) > $buffer_amount) {
+		# buffer is full enough
+		if ( $debug eq 1) {
+			print "Buffer is full: Len ".length($$buffer_ref)." Amt ".$buffer_amount;
+		}
+		return;
+	}
+	# check for empty file
+	if ( not -f $db or -s $db eq 0 ) {
+		if ( $debug eq 1) {
+			print "File is empty, or does not exist\n";
+		}
+		return;
+	}
+	#otherwise add to buffer
+	print "Buffer is low: ".length($$buffer_ref)."\n" if ( $debug eq 1);
+	open(DB, "+<".$db ) or error "Could not open $db: $!"; # open and lock file
+	# try to lock database, or return
+	# this is so program can use buffer while collector is 
+	# getting more random data, instead of being blocked
+	if ( not flock( DB,LOCK_EX | LOCK_NB ) ) {
+		print "Could not lock $db: $!" if ( $debug eq 1);
+		close(DB);
+		return;
+	}
+	seek( DB,-$buffer_amount,2); # go to $buffer_amount before end of file
+	my $tmp_buffer;
+	read( DB, $tmp_buffer, $buffer_amount); # read tail of file
+	$$buffer_ref .= $tmp_buffer;
+	# cut off end of file
+	seek(DB,0,2);
+	truncate(DB,tell(DB) - $buffer_amount);
+	close(DB);
+	print "Buffer is now: ".length($$buffer_ref)."\n" if ( $debug eq 1);
+	return;
+}
+
+open(RD, ">>/dev/random") or error "Unable to open random device for writing: $!";
 
 # get total data for today from stats file
 my $adds=0;
@@ -136,7 +192,10 @@ else {
 chmod 0640, $stats_file;
 system("chgrp munin $stats_file");
 
-my (@data, $rand64, $rand, $empty, $tries, $test, $size);
+logit "Starting";
+
+my (@data, $rand, $empty, $tries, $test, $size);
+my $rand_buffer="";
 
 my $empty_notice=0; # only every hour
 my $output_stats=0;
@@ -145,39 +204,34 @@ while (1) {
 	$empty=0;
 	$tries=0;
 	while ( entrophy_level() < $min_level and $empty eq 0 and $tries < 100 ) {
-		# open and lock file
-		open(DB, "+<".$database ) or die "Could not open database: $!";
-		flock(DB,LOCK_EX) or die "Could not lock database: $!";
-		seek(DB,-2500,2);
-		$test="";
-		$rand64="";
-		while ($test=<DB>) { $rand64=$test; };
-		seek(DB,0,2);
-		truncate(DB,tell(DB) - length($rand64));
-		close(DB);
-		if ( $rand64 ne "" ) {
-			#print $rand64;
-			chomp($rand64);
-			$rand=decode_base64($rand64);
-			$size=length($rand);
-			#print entrophy_level() . " + " . $size . "\n";
-			# int, int, unsiged 32bit char (__u32)
+		
+		get_enc_data(\$rand_buffer, $buffer, $database);
+		
+		if ( $rand_buffer ne "" ) {
+			
+			# cut off a slice from buffer
+			$size=int(rand($added_max - $added_min)) + $added_min;
+			if ( length($rand_buffer) > $size ) {
+				$rand=substr($rand_buffer, -$size);
+				$rand_buffer=substr($rand_buffer, 0, -$size);
+			}
+			else { #buffer is very low
+				print "Buffer is low\n" if ( $debug eq 1);
+				$size=length($rand_buffer);
+				$rand=$rand_buffer;
+			}
+			print "Buffer len: ".length($rand_buffer)."\n" if ( $debug eq 1);
+			print "Adding Length: ".length($rand)." Size: $size\n" if ( $debug eq 1);
+			
+			# pack it
 			my $entropy_pack=pack("i i a".$size, entrophy_level(), $size, $rand);	
 			
-			ioctl(RD, $RNDADDENTROPY , $entropy_pack) || die "Can't ioctl: $!";
-			#close(RD);
-			# test for packing of random data
-			#my ($e_level, $e_size, $e) = unpack("i i a".$size, $entropy_pack);
-			#if ($rand ne $e) {
-			#	print "\nUnpack was not equal: ".length($rand)." != ".length($e)."\n";
-			#	print $rand."\n";
-			#	print $e."\n";
-			#}
-			#if ($size ne $e_size) {
-			#	print "\nSize was not equal: ".length($size)." != ".length($e_size)."\n";
-			#}
+			# enter it into device
+			ioctl(RD, $RNDADDENTROPY , $entropy_pack) || error "Can't ioctl: $!";
+			
+			# record it
 			$adds += $size;
-			#print ".";
+			
 		}
 		else {
 			$empty = 1;

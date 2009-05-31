@@ -27,15 +27,15 @@ DESC=randomhelper
 
 start_rand() {
 	
-	if [ -n "$(pgrep -f 'random-add')" ] \
-	 || [ -n "$(pgrep -f 'random-collector')" ] ; then
+	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-add")" ] \
+	 || [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-collector")" ] ; then
 	 
 	  echo "Random get and/or collector already running"
 	  
 	else
 	  
 	  # random add
-	   su - -c "perl random-add &" >/dev/null 2>/dev/null&
+	   su - -c "perl $PREFIXPATH/sbin/random-add > /dev/null 2>&1 &" > /dev/null 2>&1 &
 	  
 	  # random collector
 	  if [ -n "$RANDUSER" ] ; then
@@ -43,12 +43,12 @@ start_rand() {
 	    # user
 	    mkdir -p /var/lib/randomhelper
 	    chown "$RANDUSER:$RANDUSER" -R /var/lib/randomhelper
-	    su - "$RANDUSER" -c "perl random-collector &" >/dev/null 2>/dev/null&
+	    su - "$RANDUSER" -c "perl $PREFIXPATH/sbin/random-collector > /dev/null 2>&1 &" > /dev/null 2>&1 &
 	    
 	  else
 	    
 	    # root
-	    su - -c "perl random-collector &" >/dev/null 2>/dev/null&
+	    su - -c "perl $PREFIXPATH/sbin/random-collector &" >/dev/null 2>&1 &
 	    
 	  fi
 	  
@@ -59,10 +59,10 @@ start_rand() {
 stop_rand() {
 	
 	if [ -n "$(pgrep -f 'random-add')" ] ; then
-	  kill $(pgrep -f "random-add")
+	  kill $(pgrep -f "perl $PREFIXPATH/sbin/random-add")
 	fi
 	if [ -n "$(pgrep -f 'random-collector')" ] ; then
-	  kill $(pgrep -f "random-collector")
+	  kill $(pgrep -f "perl $PREFIXPATH/sbin/random-collector")
 	fi
 	
 }
@@ -90,15 +90,16 @@ case "$1" in
 	stop_rand
 	sleep 2
 	start_rand
+	echo " OK"
 	
     ;;
   status)
-  	if [ -n "$(pgrep -f "random-add")" ] ; then
+  	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-add")" ] ; then
   	  echo "Random-add running"
   	else
   	  echo "Random-add stopped"
   	fi
-	if [ -n "$(pgrep -f "random-collector")" ] ; then
+	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-collector")" ] ; then
 	  echo "Random-collector running"
 	else
 	  echo "Random-collector stopped"

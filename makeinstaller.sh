@@ -2,12 +2,28 @@
 
 set -x
 
-dir=randomhelper-0.2
+dir=randomhelper-0.3
 
 rm -drf "./$dir"
 rm -f "${dir}.tar.gz"
 
 mkdir "$dir"
+
+set +x
+chmod +x configure install.sh config.perl plugins/entropyusage
+chmod -x random-collector random-get
+for EACH in `ls plugins` ; do
+  [ -d "plugins/$EACH" ] && chmod +x "plugins/$EACH/run"
+done
+
+for EACH in random-collector random-get ; do
+  perl -c $EACH
+  if [ $? -ne 0 ] ; then
+    echo "Failed $EACH"
+    exit
+  fi
+done
+set -x
 
 cp -a "initd" "$dir/"
 cp -a "plugins" "$dir/"

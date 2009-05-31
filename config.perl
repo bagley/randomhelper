@@ -38,9 +38,9 @@ sub load_mods {
 
 load_mods( "Cwd",
            "Cwd qw(abs_path)",
-           "MIME::Base64 qw(encode_base64)",
            "Sys::Syslog",
            "File::Basename",
+           "File::Copy",
            "File::Temp qw( tempdir )",
            "Time::HiRes qw( usleep )",
            "Date::Format"
