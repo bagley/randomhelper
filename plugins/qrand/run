@@ -7,6 +7,9 @@ clean_up() {
 
 qconfig=qrbg.ini
 
+# keep perms secure
+[ -f ./$qconfig ] && chmod 600 ./$qconfig
+
 case $1 in 
 	
 	--check)
@@ -46,6 +49,9 @@ case $1 in
 		    read -p "Again: " pwd2 ; echo
 		  done
 		  stty echo
+		  # perms
+                  echo "" > ./$qconfig
+                  chmod	600 ./$qconfig
 		  # write it out
 		  echo -n "/t:byte --binary --user=\"$username\" --pass=\"$pwd1\"" > ./$qconfig
 		  echo "Done"
@@ -60,8 +66,9 @@ case $1 in
 		
 	--get)  
 		[ -n "$2" ] || exit 1
+		amount=$(($2 * 1024 * 1024))
 		trap "clean_up" SIGINT SIGHUP SIGTERM
-		./qrand /N:$2
+		./qrand /N:$amount
 		exit
 		;;
 		

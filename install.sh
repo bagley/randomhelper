@@ -102,6 +102,11 @@ install -m 755 randomhelper.sed "$INIT/randomhelper"
 
 set +x
 
+# add munin plugin
+if [ "$MUNIN" = "yes" ] ; then
+  install -m 755 munin/entropyusage /etc/munin/plugins/entropyusage
+fi
+
 # set priorities
 echo "size=300" > "/etc/randomhelper"
 chmod 640 "/etc/randomhelper"

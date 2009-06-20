@@ -52,6 +52,13 @@ sub get_data {
 	my $amount_bytes = $amount * 1024 * 1024;
 	my $testfile=$dest.".test";
 	my ($x,$buf);
+	# secure file
+	if ( open(TOUCH, ">$dest") ) {
+	  print TOUCH "";
+	  close(TOUCH);
+	  chmod 0600, $dest;
+	}
+	# run app
 	logit "Getting $amount mb from $src";
 	my $src_path=$plugin_dir . "/" . $src . "/run";
 	if ( -x $src_path ) {
@@ -59,7 +66,7 @@ sub get_data {
 		chdir($plugin_dir . "/" . $src);
 		system("\"$src_path\" --get $amount > \"$dest\" 2>/dev/null &");
 		
-		# watch it
+		# watch it (allow for at minimum 1 mb/min transfer/create rate) 
 		my $timeout = $amount * 6;
 		my $pid;
 		my $t = 5;
@@ -357,18 +364,18 @@ if ( not -w abs_path($0) ) {
 }
 # check that we are running as non-root
 if ( -w "/" ) {
-	print "Cannot run as root!\n";
-#	print "Cannot run as root! Attempting to drop privleges\n";
-#	# try to drop privleges
-#	my $uid=(stat($var_area))[0];
-#	if ( $uid eq 0 ) {
-#		error "Random user home directory $var_area is owned by root!? Exiting...";
-#	}
-#	my $randuser = getpwuid($uid);
-#	logit "Trying as user $randuser ($uid)"; 
-#	my $passargs="";
-#	if ( $#ARGV eq 0 and $ARGV[0] eq "--config") { $passargs="--config"; }
-#	exec("su - \"$randuser\" -c \"".abs_path($0)." $passargs\"");
+#	print "Cannot run as root!\n";
+	print "Cannot run as root! Attempting to drop privleges\n";
+	# try to drop privleges
+	my $uid=(stat($var_area))[4];
+	if ( $uid eq 0 ) {
+		error "Random user home directory $var_area is owned by root!? Exiting...";
+	}
+	my $randuser = getpwuid($uid);
+	logit "Trying as user $randuser ($uid)"; 
+	my $passargs="";
+	if ( $#ARGV eq 0 and $ARGV[0] eq "--config") { $passargs="--config"; }
+	exec("su - \"$randuser\" -c \"".abs_path($0)." $passargs\"");
 	exit;
 }
 
@@ -414,6 +421,7 @@ if ( $#ARGV eq 0 and $ARGV[0] eq "--config") {
 	for my $plugin (@config_plugins) {
 		my $plugin_run=$plugin_dir . "/" . $plugin . "/" . "run";
 		if ( -x $plugin_run ) {
+			chdir($plugin_dir . "/" . $plugin);
 			system($plugin_run." --config");
 		}
 	}

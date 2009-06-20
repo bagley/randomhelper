@@ -27,7 +27,7 @@ set -x
 
 cp -a "initd" "$dir/"
 cp -a "plugins" "$dir/"
-rm -f "$dir/plugins/qrand/qrand"
+#rm -f "$dir/plugins/qrand/qrand"
 
 cp -a "config.perl" "$dir/"
 cp -a "configure" "$dir/"

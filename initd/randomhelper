@@ -1,12 +1,15 @@
 #! /bin/sh
-#chkconfig 10 90 50
+
+# chkconfig 2345 10 90
+# description: Start random data collecting daemon
+
 ### BEGIN INIT INFO
 # Provides: 	     randomhelper
 # Required-Start:    $local_fs
 # Required-Stop:     $local_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Start random daemons
+# Short-Description: Start random data collecting daemon
 ### END INIT INFO
 #
 # make modules
@@ -21,9 +24,18 @@ PATH=/bin:/sbin:/usr/bin:/usr/sbin:$PREFIXPATH/bin:$PREFIXPATH/sbin
 
 DESC=randomhelper
 
-. /lib/lsb/init-functions
+# Source function library.
+if [ -f /lib/lsb/init-functions ] ; then
+  . /lib/lsb/init-functions
+fi
+if [ -f /etc/init.d/functions ] ; then
+  . /etc/init.d/functions
+fi
 
 #test $DEBIAN_SCRIPT_DEBUG && set -v -x
+
+# limit memory usage (careful with this)
+#ulimit -s 128
 
 start_rand() {
 	
@@ -86,7 +98,7 @@ case "$1" in
 	
     ;;
   restart|force-reload)
-	log_daemon_msg "Restarting $DESC"
+	echo -n "Restarting $DESC"
 	stop_rand
 	sleep 2
 	start_rand
