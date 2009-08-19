@@ -436,7 +436,7 @@ setpriority(0, 0, 2);
 # wait x mins after machine startup (some generators need time to startup)
 my $wait = 15 * 60;
 if ( open( UPTIME, "/proc/uptime" ) ) {
-	my $uptime = ( split (/ /, (<UPTIME>)[0]) )[1];
+	my $uptime = ( split (/ /, (<UPTIME>)[0]) )[0];
 	close(UPTIME);
 	if ( $uptime < $wait ) {
 		sleep $wait - $uptime;

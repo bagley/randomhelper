@@ -29,6 +29,7 @@ if [ -n "$1" ] ; then
   set -x
   if [ -x "$INIT/randomhelper" ] ; then
     "$INIT/randomhelper" stop
+    chkconfig --del randomhelper
     rm -f "$INIT/randomhelper"
   fi
   #rm -f "/etc/randomhelper"
@@ -68,8 +69,16 @@ if [ "$MAKEUSER" = "y" ] ; then
   # we want to make our own passwords - or maybe not
   # head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 > ./install.pwd
   set -x
-  adduser --system --group --home "/var/lib/randomhelper" $SHELL \
-    --no-create-home --disabled-password "$RANDUSER"
+  if [ -f /etc/debian.version ] ; then
+    adduser --system --group --home "/var/lib/randomhelper" $SHELL \
+      --no-create-home --disabled-password "$RANDUSER"
+  else
+    adduser -r --home "/var/lib/randomhelper" $SHELL -M "$RANDUSER"
+    head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 | passwd --stdin "$RANDUSER"
+    if [ $? -ne 0 ] ; then
+      echo "Failed to create user. You may have to do it yourself."
+      exit
+    fi
   set +x
 else
   echo "Skipping adding user"
@@ -100,11 +109,13 @@ cd "$installdir/initd"
 install -m 755 randomhelper.sed "$INIT/randomhelper"
 #rm -f randomhelper.sed
 
+chkconfig --add randomhelper
+
 set +x
 
 # add munin plugin
 if [ "$MUNIN" = "yes" ] ; then
-  install -m 755 munin/entropyusage /etc/munin/plugins/entropyusage
+  install -m 755 ./munin/entropyusage /etc/munin/plugins/entropyusage
 fi
 
 # set priorities
