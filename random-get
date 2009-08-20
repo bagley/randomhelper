@@ -18,6 +18,8 @@ use Fcntl qw(:DEFAULT :flock);
 
 use Date::Format;
 
+use Cwd qw(abs_path);
+
 $ENV{'PATH'}="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin";
 
 # Lowest level allowed for random pool (1000 - 3000). Higher not recommended.
@@ -44,9 +46,45 @@ setpriority(0, 0, -1);
 # rng address (run with --address command to get address)
 my $RNDADDENTROPY=0x40085203;
 
+use Sys::Syslog;
+# log info
+sub logit {
+	my $msg = shift;
+	openlog("random-add", 'cons,pid', 'user');
+	syslog('notice', $msg);
+	closelog();
+	print $msg . "\n";
+}
+
+sub error {
+	my $msg = shift;
+	logit($msg);
+	exit 1;
+}
+
+# data structure for random pool adding
+#struct rand_pool_info {
+#	int	entropy_count;
+#	int	buf_size;
+#	__u32	buf[0];
+#};
+
 # link address (write a c program and get the address from it)
-if ($#ARGV eq 0 and $ARGV[0] eq "--address" ) {
-	print "Please wait... getting address.\n";
+sub check_address {
+#	print "Please wait... getting address.\n";
+	my $test=shift;
+	my @check_path=split(/:/,$ENV{'PATH'});
+	my $found = 0;
+	foreach (@check_path) {
+	  if ( -x "$_/gcc" ) {
+	    $found=1;
+	  }
+	}
+	if ( not $found ) {
+	  print("gcc is not installed. Cannot determine rng address");
+	  logit("gcc is not installed. Cannot determine rng address");
+	  exit 5;
+	} 
 	my $c_contents="
 		#include <stdio.h>\n
 		#include <linux/types.h>\n
@@ -73,38 +111,47 @@ if ($#ARGV eq 0 and $ARGV[0] eq "--address" ) {
 	rmdir($tmpdir);
 	# check and convert to number
 	
-	print "Rng address is $gen_RNDADDENTROPY\n";
-	if ( "$gen_RNDADDENTROPY" ne "0x".sprintf("%X",$RNDADDENTROPY) ) {
-		print "Variable \$RNDADDENTROPY is 0x".sprintf("%X",$RNDADDENTROPY)."\n";
-		print "You will need to change it manually\n";
-	} else {
-		print "Current saved address is correct.\n";
+	if ( $test ) {
+	  print "Test was successful: $gen_RNDADDENTROPY\n";
+	  exit 0;
 	}
-	exit;
+	
+	#print "Rng address is $gen_RNDADDENTROPY\n";
+	if ( "$gen_RNDADDENTROPY" ne "0x".sprintf("%X",$RNDADDENTROPY) ) {
+	  my $found=0;
+	  my $app=abs_path($0);
+	  print "Rng address changed to $gen_RNDADDENTROPY\n";
+	  open(FH,$app) || error "Could not open file $app";
+	  open(NEW,">$app.new") || error "Could not write to $app";
+	  foreach (<FH>) {
+	    if ( m/^my \$RNDADDENTROPY=0x[0-9a-fA-F]+;\n/ ) {
+	      print NEW "my \$RNDADDENTROPY=$gen_RNDADDENTROPY;\n";
+	      $found=1;
+	    }
+	    else {
+	      print NEW $_;
+	    }
+	  }
+	  close(FH);
+	  close(NEW);
+	  rename("$app.new","$app");
+	  system("chmod 700 \"$app\"");
+	  if ( $found eq 1 ) {
+	    system("\"$app\" &"); #restart
+	    exit 0;
+	  }
+	  else {
+	    logger("Unable to change RNDADDENTROPY to $gen_RNDADDENTROPY");
+	    exit 4;
+	  }
+	}
+	return 0;
 }
 
-use Sys::Syslog;
-# log info
-sub logit {
-	my $msg = shift;
-	openlog("random-add", 'cons,pid', 'user');
-	syslog('notice', $msg);
-	closelog();
-	print $msg . "\n";
-}
-
-sub error {
-	my $msg = shift;
-	logit($msg);
-	exit 1;
-}
-
-# data structure for random pool adding
-#struct rand_pool_info {
-#	int	entropy_count;
-#	int	buf_size;
-#	__u32	buf[0];
-#};
+# check rng address
+my $testing = 0;
+if ( $#ARGV gt -1 and $ARGV[0] eq "--test") { $testing=1; }
+check_address($testing);
 
 # wait for database if it isnt there already
 if ( not -f $database ) {

@@ -4,7 +4,9 @@ PATH="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin"
 
 installdir=$(pwd)
 
-rm -f "$installdir/config.status"
+rm -f "$installdir/config.status" "$installdir/config.vars"
+rm -f "$installdir/*.sed" "$installdir/*/*.sed"
+
 
 help_user() {
 	cat <<EOF
@@ -46,13 +48,13 @@ MAKEUSER="yes"
 while [ $# -gt 0 ]
 do
     case "$1" in
-        --prefix=* ) PREFIX=$(echo $1 | cut -f2 -d' ') ;;
+        --prefix=* ) PREFIX=$(echo $1 | cut -f2 -d'=') ;;
         
-        --initd=* ) INIT=$(echo $1 | cut -f2 -d' ') ;;
+        --initd=* ) INIT=$(echo $1 | cut -f2 -d'=') ;;
         
-        --disable=* ) DISABLED="$DISABLED $(echo $1 | cut -f2 -d' ')" ;;
+        --disable=* ) DISABLED="$DISABLED $(echo $1 | cut -f2 -d'=')" ;;
         
-        --user=*) RANDUSER=$(echo $1 | cut -f2 -d' ') ;;
+        --user=*) RANDUSER=$(echo $1 | cut -f2 -d'=') ;;
         
         --nousercreate) MAKEUSER="" ;;
         
@@ -82,12 +84,12 @@ check_path() {
 
 # check paths
 
-echo "PREFIX=$PREFIX" >> "$installdir/config.status"
+echo "PREFIX=$PREFIX" >> "$installdir/config.vars"
 
 [ -d "$INIT" ] || error "Init directory $INIT not found"
-echo "INIT=$INIT" >> "$installdir/config.status"
+echo "INIT=$INIT" >> "$installdir/config.vars"
 
-echo "RANDUSER=$RANDUSER" >> "$installdir/config.status"
+echo "RANDUSER=$RANDUSER" >> "$installdir/config.vars"
 
 # is this linux
 echo "Checking for /dev/random"
@@ -96,12 +98,12 @@ echo "Checking for /dev/random"
 # gcc?
 check_path gcc
 GCC=$RET
-echo "GCC=$GCC" >> "$installdir/config.status"
+echo "GCC=$GCC" >> "$installdir/config.vars"
 
 # perl?
 check_path perl
 PERL=$RET
-echo "PERL=$PERL" >> "$installdir/config.status"
+echo "PERL=$PERL" >> "$installdir/config.vars"
 
 # rngtool
 echo -n "Checking for rngtest ... "
@@ -118,7 +120,7 @@ if ! [ -x "$RNGTEST" ] ; then
             which could result in adding insecure (guessable) random
             data to the kernel pool. It's your funeral."
 else
-  echo "rngtest=$RNGTEST" >> "$installdir/config.status"
+  echo "rngtest=$RNGTEST" >> "$installdir/config.vars"
 fi
 
 
@@ -152,54 +154,103 @@ if [ -z "$plugins" ] ; then
   plugins="No plugins found. You may still install, but without 
             any plugins, this program is useless."
 else
-  echo "plugins=\"$plugins\"" >> "$installdir/config.status"
+  echo "plugins=\"$plugins\"" >> "$installdir/config.vars"
 fi
+
+echo -n "Setting path on randomhelper init script ... "
+cd "$installdir/initd"
+cp randomhelper randomhelper.sed
+sed -i'' -e"s|PREFIXPATH=/usr/local|PREFIXPATH=$PREFIX|g" \
+	-e"s|RANDUSER=randomhelper|RANDUSER=$RANDUSER|g" randomhelper.sed
+echo "OK"
+
+
+echo -n "Setting path for random-collector ... "
+cd "$installdir"
+cp random-collector random-collector.sed
+sed -i'' -e"s|^my \$prefix = .*\;$|my \$prefix = \"$PREFIX\"\;|g" random-collector.sed
+echo "OK"
+
 
 # check user
 if ! [ -x $(which adduser) ] ; then
   MAKEUSER="(adduser not found - will still try to chmod to $RANDUSER)"
-  echo "MAKEUSER=n" >> "$installdir/config.status"
+  echo "MAKEUSER=n" >> "$installdir/config.vars"
   
-elif [ -n "$MAKEUSER" ] && [ -n "$(getent passwd "$RANDUSER")" ] ; then
+elif [ -n "$MAKEUSER" ] && [ -z "$(getent passwd "$RANDUSER")" ] ; then
   MAKEUSER="(User will be created)"
-  echo "MAKEUSER=y" >> "$installdir/config.status"
+  echo "MAKEUSER=y" >> "$installdir/config.vars"
   
 else
   MAKEUSER="(Either user exists, or you choose not to add user)"
-  echo "MAKEUSER=n" >> "$installdir/config.status"
+  echo "MAKEUSER=n" >> "$installdir/config.vars"
   
+fi
+
+# useradd script
+# add user if needed
+if [ "$MAKEUSER" = "(User will be created)" ] ; then
+  SHELL="/bin/sh"
+  [ -x /bin/bash ] && SHELL="--shell /bin/bash"
+  if [ -f /etc/debian_version ] ; then
+    getent passwd "$RANDUSER" >/dev/null || \
+cat <<EOF >>"$installdir/config.status"
+    adduser --system --group --home "/var/lib/randomhelper" $SHELL \
+      --no-create-home --disabled-password "$RANDUSER"
+    if [ \$? -ne 0 ] ; then
+      echo "Failed to create user. You may have to do it yourself."
+      exit
+    fi
+EOF
+  
+  elif [ -f /etc/redhat-release ] ; then
+    getent group "$RANDUSER" >/dev/null || \
+      echo "groupadd -r $RANDUSER" >> "$installdir/config.status"
+    getent passwd "$RANDUSER" >/dev/null || \
+cat <<EOF >>"$installdir/config.status"
+    useradd -r -M -g "$RANDUSER" --home "/var/lib/randomhelper" -s /bin/bash \
+    -c "User for running scripts to collect random data" "$RANDUSER"
+    # head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 | passwd --stdin "$RANDUSER"
+    if [ \$? -ne 0 ] ; then
+      echo "Failed to create user. You may have to do it yourself."
+      exit
+    fi
+EOF
+  
+  else
+cat <<EOF >>"$installdir/config.status"
+    echo "I was unable to add the needed user to your system"
+    echo "You will need to add it yourself using the needed tools (man adduser)"
+    echo "Username and group are: $RANDUSER"
+    echo "It needs to a system account."
+    echo "Home home directory is /var/lib/randomhelper"
+EOF
+  
+  fi
+else
+  echo "Skipping adding user"
 fi
 
 
 # check random device address, and change if needed
+# (note in git this is random-get, and here it is random-add)
 echo -n "Getting random number generator address ... "
 cd "$installdir"
-RNGADDRESS=$(perl ./random-add --address | grep "Rng address is" | cut -f4 -d' ')
-echo "RNGADDRESS=$RNGADDRESS" >> "$installdir/config.status"
+perl ./random-add --test
+if [ $? -ne 0 ] ; then
+  echo "Error getting rng address"
+  exit 5
+fi
 echo "OK"
+RNGADDRESS="OK"
 
-MUNIN="no"
-[ -d "/etc/munin/plugins" ] && MUNIN="yes"
-echo "MUNIN=$MUNIN" >> "$installdir/config.status"
+MUNIN=no
+if [ -d "/etc/munin/plugins" ] ; then
+  MUNIN=yes
+fi
 
-# sed files
-echo -n "Outputing files ... "
-cd "$installdir"
-rm -f random-collector.sed random-add.sed
-cp random-collector random-collector.sed
-sed -i.bak -e"s|/usr/local/share/randomhelper/plugins|$PREFIX/share/randomhelper/plugins|g" random-collector.sed
-cp random-add random-add.sed
-sed -i.bak -e"s|my \$RNDADDENTROPY=0x40085203;|my \$RNDADDENTROPY=$RNGADDRESS;|"\
-   random-add.sed
-rm -f random-collector.sed.bak random-add.sed.bak
-
-cd "$installdir/initd"
-rm -f randomhelper.sed
-cp randomhelper randomhelper.sed
-sed -i.bak -e"s|PREFIXPATH=/usr/local|PREFIXPATH=$PREFIX|g" \
-	-e"s|RANDUSER=randomhelper|RANDUSER=$RANDUSER|g" randomhelper.sed
-rm -f randomhelper.sed.bak
-echo "OK"
+echo "" >> "$installdir/config.status"
+echo "" >> "$installdir/config.vars"
 
 # output
 cat <<EOF2
@@ -221,6 +272,6 @@ Summary:
    
    munin plugin: $MUNIN
    
-Now run ./install.sh as root
+Now run './install.sh' as root. To remove use './install.sh uninstall'.
 
 EOF2

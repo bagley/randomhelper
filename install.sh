@@ -1,168 +1,99 @@
 #!/bin/sh
 
-installdir=$(pwd)
-
-# load configure
-if ! [ -f "./config.status" ] ; then
-  echo "You must run configure before you can install/uninstall."
-  exit
-fi
-
-. ./config.status
-
 PATH="/bin:/usr/bin:/usr/local/bin:/sbin:/usr/sbin:/usr/local/sbin:$PREFIX/bin:$PREFIX/sbin"
 
+DIR=$(pwd)
+
+chk_config() {
+  # load configure
+  if ! [ -f "./config.status" ] || ! [ -f "./config.vars" ] ; then
+    echo "You must run configure before you can install/uninstall."
+    exit
+  fi
+}
 error() {
 	echo "Error: $*"
 	exit
 }
+get_vars() {
+	. ./config.vars
+	INSTALLDIR="install -d -D "
+	INSTALLUSER="install -D -o $RANDUSER -g root -m 550"
+	INSTALLROOT="install -D -o root -g root -m 755"
+}
+get_priority() {
+  	echo "size=200" > "${DESTDIR}/etc/randomhelper"
+	chmod 640 "${DESTDIR}/etc/randomhelper"
+	chown "root:$RANDUSER" "${DESTDIR}/etc/randomhelper"
+	cd "$DIR/plugins"
+	for EACH in `ls -1 "${DESTDIR}$PREFIX/share/randomhelper/plugins"` ; do
+	  # set priorities
+	  priority=5
+	  priority_test=$("${DESTDIR}$PREFIX/share/randomhelper/plugins/$EACH/run" --priority)
+	  if [ -n "$priority_test" -a $priority_test -ge 1 -a $priority_test -le 10 ] ; then
+	    priority=$priority_test
+	  fi
+	  echo "$EACH priority set to $priority"
+	  [ -z "$(echo $plugins | grep $EACH)" ] && commented="#" || commented=""
+	  echo "$commented$EACH=$priority" >> "${DESTDIR}/etc/randomhelper"
+	done
+}
+add_munin() {
+  #if [ -d "${DESTDIR}/etc/munin/plugins" ] ; then
+    install -d -m 755 ./munin/entropyusage ${DESTDIR}/etc/munin/plugins/entropyusage
+  #fi
+}
 
-# root?
-#[ $UID -eq 0 ] || error "Must be root to install."
-
-# what's happening
-if [ -n "$1" ] ; then
-  if [ "$1" != "uninstall" ] ; then
-    error "Only arg is 'uninstall', otherwise we install."
-  fi
-  # uninstall files
-  set -x
-  if [ -x "$INIT/randomhelper" ] ; then
-    "$INIT/randomhelper" stop
-    chkconfig --del randomhelper
-    rm -f "$INIT/randomhelper"
-  fi
-  #rm -f "/etc/randomhelper"
-  rm -f "$PREFIX/sbin/random-collector"
-  rm -f "$PREFIX/sbin/random-add"
-  rm -drf "$PREFIX/share/randomhelper"
-  set +x
-  
-  # remove database
-  echo "Would you like to remove the database of random data?"
-  echo "This is located at /var/lib/randomhelper"
-  read -p "This file usually takes up over 300 MB of space. (y/n)" RESP
-  if [ "$RESP" = "y" ] ; then
-    set -x
-    rm -f /var/lib/randomhelper/tmp/*
-    rmdir /var/lib/randomhelper/tmp
-    rm -f /var/lib/randomhelper/*
-    rmdir /var/lib/randomhelper
-    set +x
-  fi
-  echo "You may want to remove the configured user $RANDUSER."
-  echo "Usually you can run: deluser --group $RANDUSER"
-  echo "Of course, this assumes you made a user ONLY for this program."
-  echo "Do NOT use it if you were using your account to run the program!"
-  exit
-fi
-
-
-# install
-
-# add user if needed
-if [ "$MAKEUSER" = "y" ] ; then
-  echo "Adding user $RANDUSER"
-  SHELL=""
-  [ -x /bin/sh ] && SHELL="--shell /bin/sh"
-  [ -x /bin/bash ] && SHELL="--shell /bin/bash"
-  # we want to make our own passwords - or maybe not
-  # head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 > ./install.pwd
-  set -x
-  if [ -f /etc/debian_version ] ; then
-    getent passwd "$RANDUSER" >/dev/null || \
-    adduser --system --group --home "/var/lib/randomhelper" $SHELL \
-      --no-create-home --disabled-password "$RANDUSER"
-    if [ $? -ne 0 ] ; then
-      echo "Failed to create user. You may have to do it yourself."
-      exit
-    fi
-  elif [ -f /etc/redhat-release ] ; then
-    getent group "$RANDUSER" >/dev/null || groupadd -r "$RANDUSER"
-    getent passwd "$RANDUSER" >/dev/null || \
-    useradd -r -M -g "$RANDUSER" --home "/var/lib/randomhelper" -s /bin/bash \
-    -c "User for running scripts to collect random data" "$RANDUSER"
-    # head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 | passwd --stdin "$RANDUSER"
-    if [ $? -ne 0 ] ; then
-      echo "Failed to create user. You may have to do it yourself."
-      exit
-    fi
-  else
-    echo "I was unable to add the needed user to your system"
-    echo "You will need to add it yourself using the needed tools (man adduser)"
-    echo "Username and group are: $RANDUSER"
-    echo "It needs to a system account."
-    echo "Home home directory is /var/lib/randomhelper"
-    read -p "Press enter when you have completed this. (Else all permissions will be whacked)" NONE
-  fi
-  set +x
-else
-  echo "Skipping adding user"
-fi
-
-# make dirs
-for EACH in "$PREFIX/bin" "$PREFIX/sbin" "$PREFIX/share/randomhelper/plugins" ; do
-  set -x
-  mkdir -p --mode=755 "$EACH" || error "Could not make directory $EACH"
-  set +x
-done
-set -x
-mkdir -p "/var/lib/randomhelper"
-chmod 0700 "/var/lib/randomhelper"
-chown "$RANDUSER:$RANDUSER" "/var/lib/randomhelper"
-set +x
-
-# do actual install
-echo "Performing install"
-set -x
-cd "$installdir"
-install -o "$RANDUSER" -g "$RANDUSER" -m 0700 random-collector.sed \
-  "$PREFIX/sbin/random-collector"
-install -m 0700 random-add.sed "$PREFIX/sbin/random-add"
-#rm -f random-collector.sed random-add.sed
-
-cd "$installdir/initd"
-install -m 755 randomhelper.sed "$INIT/randomhelper"
-#rm -f randomhelper.sed
-
-chkconfig --add randomhelper
-
-set +x
-
-# add munin plugin
-if [ "$MUNIN" = "yes" ] ; then
-  install -m 755 ./munin/entropyusage /etc/munin/plugins/entropyusage
-fi
-
-# set priorities
-echo "size=300" > "/etc/randomhelper"
-chmod 640 "/etc/randomhelper"
-chown "root:$RANDUSER" "/etc/randomhelper"
-
-# plugins
-cd "$installdir/plugins"
-for EACH in $plugins ; do
-  set -x
-  #install -d -o "$RANDUSER" -g "$RANDUSER" "$installdir/plugins/$EACH" \
-  #  "$PREFIX/share/randomhelper/plugins/$EACH"
-  cp -pr --force "$installdir/plugins/$EACH" "$PREFIX/share/randomhelper/plugins/"
-  chown "$RANDUSER:$RANDUSER" -R "$PREFIX/share/randomhelper/plugins/$EACH"
-  set +x
-  priority=5
-  priority_test=$("$PREFIX/share/randomhelper/plugins/$EACH/run" --priority)
-  if [ $priority_test -ge 1 -a $priority_test -le 10 ] ; then
-    priority=$priority_test
-  fi
-  echo "$EACH priority set to $priority"
-  echo "$EACH=$priority" >> "/etc/randomhelper"
-done
-
-set +x
-
-# configure program
-read -p "Would you like to configure the plugins now? (y/n) " RESP
-if [ "$RESP" = "y" ] ; then
-  su - "$RANDUSER" -c "$PREFIX/sbin/random-collector --config"
-fi
-
-exit
+case $1 in
+	clean)
+		set -x
+		rm -f config.status config.vars
+		;;
+	
+	uninstall)
+		chk_config
+		set -x
+		get_vars
+		"$INIT/randomhelper" stop
+		chkconfig --del randomhelper                   			|| echo "Failed"
+		rm -f "$DESTDIR$INIT/randomhelper"              		|| echo "Failed"
+		#rm -f "/etc/randomhelper"                   			|| echo "Failed"
+		rm -f "$DESTDIR$PREFIX/sbin/random-collector"                   || echo "Failed"
+		rm -f "$DESTDIR$PREFIX/sbin/random-add"                   	|| echo "Failed"
+		rm -drf "$DESTDIR$PREFIX/share/randomhelper"                   	|| echo "Failed"
+		rm -f $DESTDIR/var/lib/randomhelper/tmp/*
+		rmdir $DESTDIR/var/lib/randomhelper/tmp
+		rm -f $DESTDIR/var/lib/randomhelper/*                   	|| echo "Failed"
+		rmdir $DESTDIR/var/lib/randomhelper                   		|| echo "Failed"
+		set +x
+		echo "You may want to remove the configured user $RANDUSER."
+  		echo "Usually you can run: deluser --group $RANDUSER"
+ 		echo "Of course, this assumes you made a user ONLY for this program."
+  		echo "Do NOT use it if you were using your account to run the program!" 
+  		exit
+  		;;
+		
+	help|--help|-h)  echo "Usage: <install uninstall clean>" ;;
+	
+	*)
+		chk_config
+		set -x
+		get_vars
+		. ./config.status
+		$INSTALLROOT $DIR/random-add ${DESTDIR}${PREFIX}/sbin/random-add               || error "Failed"
+		$INSTALLUSER $DIR/random-collector.sed ${DESTDIR}${PREFIX}/sbin/random-collector   || error "Failed"
+		$INSTALLDIR -m 700 -o $RANDUSER -g $RANDUSER ${DESTDIR}/var/lib/randomhelper                 		|| error "Failed"
+		$INSTALLROOT $DIR/initd/randomhelper.sed "${DESTDIR}/${INIT}/randomhelper"     || error "Failed"
+		[ -z "${DESTDIR}" ] && chkconfig --add randomhelper
+		$INSTALLDIR "${DESTDIR}$PREFIX/share/randomhelper/plugins/"		|| error "Failed"
+		cp -r $DIR/plugins/* "${DESTDIR}${PREFIX}/share/randomhelper/plugins/"	|| error "Failed"
+		chown "$RANDUSER:$RANDUSER" -R "${DESTDIR}${PREFIX}/share/randomhelper/plugins"	|| error "Failed"
+		chmod u=rwX,g=rX,o-rwx -R "${DESTDIR}${PREFIX}/share/randomhelper"	|| error "Failed"
+		get_priority
+		set +x
+		echo "You can now configure the program by running:"
+		echo "su - \"$RANDUSER\" -c \"${DESTDIR}${PREFIX}/sbin/random-collector --config"
+		echo "Then you can start the program with ${INIT}/randomhelper start"
+		;;	
+	
+esac

@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/sh
 
 # chkconfig 2345 10 90
 # description: Start random data collecting daemon
@@ -79,6 +79,22 @@ stop_rand() {
 	
 }
 
+status_rand() {
+	RETVAL=0
+	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-add")" ] ; then
+  	  [ -z "$1" ] && echo "Random-add running"
+  	  RETVAL=1
+  	else
+  	  [ -z "$1" ] && echo "Random-add stopped"
+  	fi
+	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-collector")" ] ; then
+	  [ -z "$1" ] && echo "Random-collector running"
+	  RETVAL=1
+	else
+	  [ -z "$1" ] && echo "Random-collector stopped"
+	fi
+	return
+}
 
 case "$1" in
   start)
@@ -86,7 +102,13 @@ case "$1" in
 	
 	start_rand
 	
-	echo " OK"
+	sleep 3
+	status_rand quiet
+	if [ $RETVAL = 1 ] ; then
+	  echo " OK"
+	else
+	  echo " FAILED"
+	fi
 	
     ;;
   stop)
@@ -94,7 +116,13 @@ case "$1" in
 	
 	stop_rand
 	
-	echo " OK"
+	sleep 3
+	status_rand quiet
+	if [ $RETVAL = 0 ] ; then
+	  echo " OK"
+	else
+	  echo " FAILED"
+	fi
 	
     ;;
   restart|force-reload)
@@ -105,22 +133,25 @@ case "$1" in
 	echo " OK"
 	
     ;;
+  
+  condrestart)
+	status_rand quiet
+	[ $RETVAL = 0 ] && exit
+	echo -n "Restarting $DESC"
+	stop_rand
+	sleep 2
+	start_rand
+	echo " OK"
+	
+    ;;
+  
   status)
-  	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-add")" ] ; then
-  	  echo "Random-add running"
-  	else
-  	  echo "Random-add stopped"
-  	fi
-	if [ -n "$(pgrep -f "perl $PREFIXPATH/sbin/random-collector")" ] ; then
-	  echo "Random-collector running"
-	else
-	  echo "Random-collector stopped"
-	fi
+  	status_rand
     ;;
   *)
 	N=/etc/init.d/module-config
 	# echo "Usage: $N {start|stop|restart|reload|force-reload}" >&2
-	echo "Usage: $N {start|stop|restart|force-reload}" >&2
+	echo "Usage: $N {start|stop|restart|force-reload|status|cond-restart}" >&2
 	exit 1
 	;;
 esac

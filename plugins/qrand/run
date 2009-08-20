@@ -69,6 +69,7 @@ case $1 in
 		amount=$(($2 * 1024 * 1024))
 		trap "clean_up" SIGINT SIGHUP SIGTERM
 		./qrand /N:$amount
+		sleep 5
 		exit
 		;;
 		

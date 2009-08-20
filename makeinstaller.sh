@@ -1,10 +1,9 @@
 #!/bin/bash
 
 app=randomhelper
-version=0.3
-release=-1
+version=0.3.1
 
-dir="$app-$version$release"
+dir="$app-$version"
 
 makeinstall() {
 
@@ -60,13 +59,14 @@ cp -a "random-get" "$dir/random-add"
 fold -sw 70 "COPYING" > "$dir/COPYING"
 fold -sw 70 "INSTALL" > "$dir/INSTALL"
 fold -sw 70 "README" > "$dir/README"
+fold -sw 70 "TODO" > "$dir/TODO"
 
 mkdir "$dir/munin"
 mv "$dir/plugins/entropyusage" "$dir/munin/entropyusage"
 
-cp -a randomhelper.spec "$dir/randomhelper${personal}.spec"
-sed -i'' "s/VERSION/$version/g" "$dir/randomhelper${personal}.spec"
-sed -i'' "s/RELEASE/$release/g" "$dir/randomhelper${personal}.spec"
+sed -i'' "s/^%define version .*$/%define version $version/g" randomhelper.spec
+#sed -i'' "s/^%define release .*$/%define release $release/g" randomhelper.spec
+cp -a randomhelper.spec "$dir/randomhelper.spec"
 
 tar czf "${dir}${personal}.tar.gz" "$dir"
 
@@ -76,7 +76,8 @@ set +x
 
 }
 
-makeinstall
+#makeinstall
 makeinstall .personal
+mv "${dir}${personal}.tar.gz" "${dir}.tar.gz"
  
 # build rpm

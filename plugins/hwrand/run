@@ -29,6 +29,7 @@ case $1 in
 	--get) 
 		[ -n "$2" ] || exit 1
 		dd if="$randdevice" bs=1M count=$2
+		sleep 5
 		exit
 		;;
 		

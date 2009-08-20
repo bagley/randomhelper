@@ -41,6 +41,7 @@ case $1 in
 		#  dd if="$otherdev" bs=1K count=$other
 		#else
 		  dd if="$maindev" bs=1M count=$2
+		  sleep 3
 		#fi
 		exit
 		;;

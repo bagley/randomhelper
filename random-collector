@@ -17,11 +17,13 @@ use File::Copy;
 my $dir = getcwd;
 $ENV{PATH}="$dir/apps:/bin:/usr/bin:/usr/local/bin";
 
+my $prefix = "/usr/local";
+
 my $var_area = "/var/lib/randomhelper";
 
 my $database = $var_area . "/database";
 
-my $plugin_dir = "/usr/local/share/randomhelper/plugins";
+my $plugin_dir = "$prefix/share/randomhelper/plugins";
 
 my $conf = "/etc/randomhelper";
 
@@ -52,17 +54,24 @@ sub get_data {
 	my $amount_bytes = $amount * 1024 * 1024;
 	my $testfile=$dest.".test";
 	my ($x,$buf);
-	# secure file
-	if ( open(TOUCH, ">$dest") ) {
-	  print TOUCH "";
-	  close(TOUCH);
-	  chmod 0600, $dest;
-	}
-	# run app
-	logit "Getting $amount mb from $src";
+	# checks
 	my $src_path=$plugin_dir . "/" . $src . "/run";
 	if ( -x $src_path ) {
+		
+		# can we get data from this source?
+		chdir($plugin_dir . "/" . $src);
+		system("\"$src_path\" --check");
+		return 9 if ( $? ne 0 );
+		
+		# secure file
+		if ( open(TOUCH, ">$dest") ) {
+		  print TOUCH "";
+		  close(TOUCH);
+		  chmod 0600, $dest;
+		}
+		
 		# run it with --get xx arg
+		logit "Getting $amount mb from $src";
 		chdir($plugin_dir . "/" . $src);
 		system("\"$src_path\" --get $amount > \"$dest\" 2>/dev/null &");
 		
@@ -298,7 +307,10 @@ sub get_plugins {
 	closedir(DIR);
 	my %plugs=();
 	foreach my $plug (@p) {
-		$plugs{$plug}=1;
+		# can we get data from this source?
+		chdir($plugin_dir . "/" . $plug);
+		system("\"$plugin_dir/$plug/run\" --check");
+		$plugs{$plug}=1 if ( $? eq 0 );
 	} 
 	
 	# read config
