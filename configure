@@ -26,9 +26,13 @@ Options: $0
                         user credentials. The default is randomhelper.
                         You can specify a different user, but keep in
                         mind this user and its group have access to the
-                        random data 'database,' which may be viewed as
-                        a security issue.
+                        random data 'database,' so be careful who you
+                        allow access to it.
                         If this account does not exist, it will be created.
+   
+   --nousercreate       Do not create user, don't even try to detect it.
+                        Useful for automated scripts that have other ways
+                        of creating users.
 EOF
 	exit
 }
@@ -38,6 +42,7 @@ PREFIX=/usr/local
 INIT=/etc/init.d
 RANDUSER=randomhelper
 DISABLED=""
+MAKEUSER="yes"
 while [ $# -gt 0 ]
 do
     case "$1" in
@@ -48,6 +53,8 @@ do
         --disable=* ) DISABLED="$DISABLED $(echo $1 | cut -f2 -d' ')" ;;
         
         --user=*) RANDUSER=$(echo $1 | cut -f2 -d' ') ;;
+        
+        --nousercreate) MAKEUSER="" ;;
         
         *) help_user ;;
         
@@ -149,17 +156,18 @@ else
 fi
 
 # check user
-if [ -z "$(grep $RANDUSER: /etc/passwd)" -a -x $(which adduser) ] ; then
+if ! [ -x $(which adduser) ] ; then
+  MAKEUSER="(adduser not found - will still try to chmod to $RANDUSER)"
+  echo "MAKEUSER=n" >> "$installdir/config.status"
+  
+elif [ -n "$MAKEUSER" ] && [ -n "$(getent passwd "$RANDUSER")" ] ; then
   MAKEUSER="(User will be created)"
   echo "MAKEUSER=y" >> "$installdir/config.status"
-else 
-  if ! [ -x $(which adduser) ] ; then
-    MAKEUSER="(adduser not found - will still try to chmod to $RANDUSER)"
-    echo "MAKEUSER=n" >> "$installdir/config.status"
-  else
-    MAKEUSER="(User exists)"
-    echo "MAKEUSER=n" >> "$installdir/config.status"
-  fi
+  
+else
+  MAKEUSER="(Either user exists, or you choose not to add user)"
+  echo "MAKEUSER=n" >> "$installdir/config.status"
+  
 fi
 
 

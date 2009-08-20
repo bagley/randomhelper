@@ -1,11 +1,19 @@
 #!/bin/bash
 
+app=randomhelper
+version=0.3
+release=-1
+
+dir="$app-$version$release"
+
+makeinstall() {
+
+personal="$1"
+
 set -x
 
-dir=randomhelper-0.3
-
 rm -drf "./$dir"
-rm -f "${dir}.tar.gz"
+rm -f "${dir}${personal}.tar.gz"
 
 mkdir "$dir"
 
@@ -16,7 +24,15 @@ for EACH in `ls plugins` ; do
   [ -d "plugins/$EACH" ] && chmod +x "plugins/$EACH/run"
 done
 
-for EACH in random-collector random-get ; do
+for EACH in configure install.sh initd/randomhelper; do
+  sh -n $EACH
+  if [ $? -ne 0 ] ; then
+    echo "Failed $EACH"
+    exit
+  fi
+done
+
+for EACH in random-collector random-get plugins/entropyusage; do
   perl -c $EACH
   if [ $? -ne 0 ] ; then
     echo "Failed $EACH"
@@ -27,7 +43,11 @@ set -x
 
 cp -a "initd" "$dir/"
 cp -a "plugins" "$dir/"
-#rm -f "$dir/plugins/qrand/qrand"
+if [ "$personal" == ".personal" ] ; then
+  mv -f "$dir/plugins/qrand/qrbg-personal.ini" "$dir/plugins/qrand/qrbg.ini"
+else
+  rm -f "$dir/plugins/qrand/qrand" "$dir/plugins/qrand/qrbg-personal.ini"
+fi
 
 cp -a "config.perl" "$dir/"
 cp -a "configure" "$dir/"
@@ -44,6 +64,19 @@ fold -sw 70 "README" > "$dir/README"
 mkdir "$dir/munin"
 mv "$dir/plugins/entropyusage" "$dir/munin/entropyusage"
 
-tar czf "${dir}.tar.gz" "$dir"
+cp -a randomhelper.spec "$dir/randomhelper${personal}.spec"
+sed -i'' "s/VERSION/$version/g" "$dir/randomhelper${personal}.spec"
+sed -i'' "s/RELEASE/$release/g" "$dir/randomhelper${personal}.spec"
+
+tar czf "${dir}${personal}.tar.gz" "$dir"
 
 rm -drf "./$dir"
+
+set +x
+
+}
+
+makeinstall
+makeinstall .personal
+ 
+# build rpm

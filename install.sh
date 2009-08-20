@@ -69,16 +69,32 @@ if [ "$MAKEUSER" = "y" ] ; then
   # we want to make our own passwords - or maybe not
   # head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 > ./install.pwd
   set -x
-  if [ -f /etc/debian.version ] ; then
+  if [ -f /etc/debian_version ] ; then
+    getent passwd "$RANDUSER" >/dev/null || \
     adduser --system --group --home "/var/lib/randomhelper" $SHELL \
       --no-create-home --disabled-password "$RANDUSER"
-  else
-    adduser -r --home "/var/lib/randomhelper" $SHELL -M "$RANDUSER"
-    head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 | passwd --stdin "$RANDUSER"
     if [ $? -ne 0 ] ; then
       echo "Failed to create user. You may have to do it yourself."
       exit
     fi
+  elif [ -f /etc/redhat-release ] ; then
+    getent group "$RANDUSER" >/dev/null || groupadd -r "$RANDUSER"
+    getent passwd "$RANDUSER" >/dev/null || \
+    useradd -r -M -g "$RANDUSER" --home "/var/lib/randomhelper" -s /bin/bash \
+    -c "User for running scripts to collect random data" "$RANDUSER"
+    # head -c 200 /dev/urandom | tr -cd '[:graph:]' | head -c 20 | passwd --stdin "$RANDUSER"
+    if [ $? -ne 0 ] ; then
+      echo "Failed to create user. You may have to do it yourself."
+      exit
+    fi
+  else
+    echo "I was unable to add the needed user to your system"
+    echo "You will need to add it yourself using the needed tools (man adduser)"
+    echo "Username and group are: $RANDUSER"
+    echo "It needs to a system account."
+    echo "Home home directory is /var/lib/randomhelper"
+    read -p "Press enter when you have completed this. (Else all permissions will be whacked)" NONE
+  fi
   set +x
 else
   echo "Skipping adding user"
