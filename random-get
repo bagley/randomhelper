@@ -28,7 +28,11 @@ my $min_level=2000;
 # database
 my $var_area = "/var/lib/randomhelper";
 my $database = $var_area . "/database";
+
+# stats file
 my $stats_file = "/var/run/random-add.pid";
+# change if you need a different one. Ignore if you dont use selinux.
+my $stats_file_context="munin_var_run_t";
 
 # buffer, in bytes. It will grow to be twice this size.
 my $buffer = 250000;
@@ -236,8 +240,12 @@ else {
 	close(STATS);
 	logit("Stats file created");
 }
+# change stats file permissions
 chmod 0640, $stats_file;
 system("chgrp munin $stats_file");
+if ( -e "/selinux/enforce" ) {
+    system("chcon -t $stats_file_context /var/run/random-add.pid");
+}
 
 logit "Starting";
 
