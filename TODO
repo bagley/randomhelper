@@ -1,0 +1,46 @@
+(done) chkconfig randomhelper on
+
+(done) munin plugin error on install
+
+user add fixes (look at an autoinstall type program like make or perl make?)
+
+/etc/init.d/randomhelper: line 101: log_daemon_msg: command not found
+
+(done) selinux context for munin access to stats file
+still need to test whether a selinux update will reset context of stats file
+if so, wee need to use
+  semanage fcontext -a -t munin_var_run_t -f -- $stats_file
+
+Stats file needs to be in its own folder
+perhaps we should add a selinux context?
+
+All settings should reside in /etc/randomhelper
+- plugin settings, user names, passwords 
+  (thus no need to chown plugin dir to randonhelper, and this 
+   could be troublesome for a user adding new plugins)
+- stats file location and context
+- user=randomhelper
+- data dir
+>>> make it so the user will _never_ have to edit /usr/sbin/random-*
+
+
+move random-get to random-add in git tree, preserving history
+
+
+maybe change the database from one file to multiple files, and have random-add 
+cycle through them, deleting them as he is done with them. Perhaps 100 files 
+would be enough. random-collect would add files as nessacarry. This has the 
+benifit that if random-collect takes hours to sort the data, random-add does not
+have to wait for it to be done (file locks).
+
+This could also be done with a database, though I don't see the benifit except from
+not having to lock files. And sqlite slows down on larger files, though it may not with
+just having to look up a single one. We would have the rows holding 2M each, so we could
+grab a row and then delete it. We would have to VACUUM the database every once in a while
+or it would grow to be enormous. BUT HONESTLY IT WOULD END UP BEING THE SAME AS IT WAS 
+BEFORE with random-collector hoging the database while random-add starves. Or would it?
+
+Should test the database idea for two processes adding and removin data.
+
+
+
