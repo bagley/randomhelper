@@ -2,6 +2,9 @@
 
 #get random data from various sources and place it in the darabase
 
+# Copyright Matt Bagley
+# under the GPL 3
+
 use strict;
 
 use Fcntl qw(:DEFAULT :flock);

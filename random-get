@@ -2,6 +2,9 @@
 
 # open database and if enrophy level is too low place data into /dev/random
 
+# Copyright Matt Bagley
+# under the GPL 3
+
 use strict;
 
 use warnings;

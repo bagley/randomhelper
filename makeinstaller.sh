@@ -1,7 +1,7 @@
 #!/bin/bash
 
 app=randomhelper
-version=0.3.1
+version=0.3.2
 
 dir="$app-$version"
 
@@ -11,7 +11,7 @@ personal="$1"
 
 set -x
 
-rm -drf "./$dir"
+rm -rf "./$dir"
 rm -f "${dir}${personal}.tar.gz"
 
 mkdir "$dir"
@@ -70,7 +70,7 @@ cp -a randomhelper.spec "$dir/randomhelper.spec"
 
 tar czf "${dir}${personal}.tar.gz" "$dir"
 
-rm -drf "./$dir"
+rm -rf "./$dir"
 
 set +x
 
