@@ -1,0 +1,25 @@
+Install issues:
+
+[done] chmod 755 /usr/local/share/randomhelper
+
+[done] Add to qrand 'run' file, line 13:
+if [ -e ./qrand ] && ! [ -x ./qrand ] ; then
+  chmod 700 ./qrand
+fi
+
+
+qrand binary needs to be updated to use stdlib 6
+
+qrand config needs to only ask for password once
+
+make sure qrand credentials are not included in package
+
+raise lower level to 2500 or even 3000?
+
+randomhelper-add needs to either be chmod 750 or it's test to see who the owner is needs to be fixed
+
+config file needs to be documented so others know what things like size= means,
+and could put in lower entrophy level
+
+qrand is at http://random.irb.hr/index.php
+can I distibute the binary file with the program?

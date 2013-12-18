@@ -85,7 +85,8 @@ case $1 in
 		$INSTALLDIR -m 700 -o $RANDUSER -g $RANDUSER ${DESTDIR}/var/lib/randomhelper                 		|| error "Failed"
 		$INSTALLROOT $DIR/initd/randomhelper.sed "${DESTDIR}/${INIT}/randomhelper"     || error "Failed"
 		[ -z "${DESTDIR}" ] && chkconfig --add randomhelper
-		$INSTALLDIR "${DESTDIR}$PREFIX/share/randomhelper/plugins/"		|| error "Failed"
+		$INSTALLDIR -m 755 "${DESTDIR}$PREFIX/share/randomhelper/"										|| error "Failed"
+		$INSTALLDIR -m 700 -o $RANDUSER -g $RANDUSER "${DESTDIR}$PREFIX/share/randomhelper/plugins/"	|| error "Failed"
 		cp -r $DIR/plugins/* "${DESTDIR}${PREFIX}/share/randomhelper/plugins/"	|| error "Failed"
 		chown "$RANDUSER:$RANDUSER" -R "${DESTDIR}${PREFIX}/share/randomhelper/plugins"	|| error "Failed"
 		chmod u=rwX,g=rX,o-rwx -R "${DESTDIR}${PREFIX}/share/randomhelper"	|| error "Failed"

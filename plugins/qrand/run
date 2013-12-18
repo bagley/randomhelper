@@ -10,6 +10,10 @@ qconfig=qrbg.ini
 # keep perms secure
 [ -f ./$qconfig ] && chmod 600 ./$qconfig
 
+if [ -e ./qrand ] && ! [ -x ./qrand ] ; then
+  chmod 700 ./qrand
+fi
+
 case $1 in 
 	
 	--check)
